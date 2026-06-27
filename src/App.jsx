@@ -471,13 +471,15 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders }) {
 // ---------------------------------------------------------------------------
 // Écran Panier
 // ---------------------------------------------------------------------------
-function CartScreen({ cart, phone, onPhoneChange, onBack, onAdd, onRemove, onNext }) {
+function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, onBack, onAdd, onRemove, onNext }) {
   const items = Object.entries(cart).filter(([, v]) => v.qty > 0);
   const total = items.reduce((sum, [id, v]) => {
     const formula = FORMULAS.find((f) => f.id === id);
     return sum + formula.price * v.qty;
   }, 0);
   const phoneValid = phone.trim().replace(/\s/g, "").length >= 10;
+  const nameValid = firstName.trim().length >= 2;
+  const canContinue = phoneValid && nameValid;
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-32">
@@ -536,6 +538,19 @@ function CartScreen({ cart, phone, onPhoneChange, onBack, onAdd, onRemove, onNex
 
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
               <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#5B6B4F] mb-2">
+                Votre prénom
+              </label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => onFirstNameChange(e.target.value)}
+                placeholder="Camille"
+                className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+              />
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+              <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#5B6B4F] mb-2">
                 <Phone className="w-3.5 h-3.5" />
                 Votre numéro de téléphone
               </label>
@@ -559,15 +574,15 @@ function CartScreen({ cart, phone, onPhoneChange, onBack, onAdd, onRemove, onNex
         <div className="fixed bottom-5 left-0 right-0 px-5">
           <button
             onClick={onNext}
-            disabled={!phoneValid}
+            disabled={!canContinue}
             className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
           >
             <Clock className="w-4 h-4" />
             <span className="text-sm font-semibold">Choisir l'heure de retrait</span>
           </button>
-          {!phoneValid && (
+          {!canContinue && (
             <p className="text-center text-xs text-[#3E2F22]/50 mt-2">
-              Entrez votre numéro pour continuer
+              Entrez votre prénom et votre numéro pour continuer
             </p>
           )}
         </div>
@@ -680,7 +695,9 @@ function ConfirmScreen({ order, onNewOrder }) {
             <Phone className="w-3 h-3" />
             Contact
           </span>
-          <span className="text-sm text-[#3E2F22]">{order.phone}</span>
+          <span className="text-sm text-[#3E2F22]">
+            {order.firstName ? `${order.firstName} · ` : ""}{order.phone}
+          </span>
         </div>
 
         <div className="flex flex-col gap-2.5 py-3">
@@ -728,7 +745,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
   const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
 
   const handleCopy = (order) => {
-    const text = `MGMR Box Brunch — Commande ${order.id}\n${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\nRetrait : ${order.slot}\nTél : ${order.phone}`;
+    const text = `MGMR Box Brunch — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\nRetrait : ${order.slot}\nTél : ${order.phone}`;
     navigator.clipboard?.writeText(text);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 1500);
@@ -797,7 +814,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
             <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-dashed border-[#3E2F22]/10">
               <span className="text-xs text-[#3E2F22]/60 flex items-center gap-1.5">
                 <Phone className="w-3 h-3" />
-                {order.phone}
+                {order.firstName ? `${order.firstName} · ` : ""}{order.phone}
               </span>
               <span className="text-sm font-semibold text-[#3E2F22]">{order.total.toFixed(2)} €</span>
             </div>
@@ -837,6 +854,7 @@ export default function App() {
   const [lastOrder, setLastOrder] = useState(null);
   const [weeklyContent, setWeeklyContent] = useState({});
   const [phone, setPhone] = useState("");
+  const [firstName, setFirstName] = useState("");
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
 
@@ -896,6 +914,7 @@ export default function App() {
       lines,
       total,
       slot: selectedSlot,
+      firstName: firstName.trim(),
       phone: phone.trim(),
       paid: false,
       createdAt: new Date().toISOString(),
@@ -914,6 +933,7 @@ export default function App() {
     setCart({});
     setSelectedSlot(null);
     setPhone("");
+    setFirstName("");
     setLastOrder(null);
     setStep("menu");
   };
@@ -1003,6 +1023,8 @@ export default function App() {
       {step === "cart" && (
         <CartScreen
           cart={cart}
+          firstName={firstName}
+          onFirstNameChange={setFirstName}
           phone={phone}
           onPhoneChange={setPhone}
           onBack={() => setStep("menu")}
