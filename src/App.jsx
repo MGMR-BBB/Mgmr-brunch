@@ -16,7 +16,12 @@ import {
   CircleDollarSign,
   ListChecks,
   Copy,
+  Lock,
 } from "lucide-react";
+
+// Code PIN pour protéger l'accès à l'écran admin (menu de la semaine,
+// commandes du jour). Seule la personne qui connaît ce code peut y entrer.
+const ADMIN_PIN = "1208";
 
 // ---------------------------------------------------------------------------
 // Les 5 formules : structure et prix FIXES (ne changent pas).
@@ -258,6 +263,95 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Écran Code PIN : protège l'accès à l'admin (menu de la semaine, commandes)
+// ---------------------------------------------------------------------------
+function PinScreen({ onBack, onSuccess }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleDigit = (d) => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError(false);
+    if (next.length === 4) {
+      if (next === ADMIN_PIN) {
+        setTimeout(() => onSuccess(), 150);
+      } else {
+        setError(true);
+        setTimeout(() => setPin(""), 400);
+      }
+    }
+  };
+
+  const handleDelete = () => {
+    setPin((p) => p.slice(0, -1));
+    setError(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FBF3E7] flex flex-col items-center px-6 pt-16 pb-10">
+      <button
+        onClick={onBack}
+        className="self-start w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-sm mb-8"
+        aria-label="Retour au menu"
+      >
+        <ArrowLeft className="w-4 h-4 text-[#3E2F22]" />
+      </button>
+
+      <div className="w-14 h-14 rounded-full bg-[#3E2F22]/5 flex items-center justify-center mb-4">
+        <Lock className="w-6 h-6 text-[#C97B63]" />
+      </div>
+      <h2 className="text-lg text-[#3E2F22] text-center" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+        Accès réservé
+      </h2>
+      <p className="text-sm text-[#3E2F22]/60 text-center mt-1 max-w-xs">
+        Entrez le code à 4 chiffres pour gérer le menu et les commandes
+      </p>
+
+      <div className={`flex gap-3 mt-8 ${error ? "animate-pulse" : ""}`}>
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`w-12 h-12 rounded-xl border flex items-center justify-center text-lg font-semibold ${
+              error ? "border-red-300 bg-red-50 text-red-500" : "border-[#3E2F22]/15 bg-white text-[#3E2F22]"
+            }`}
+          >
+            {pin[i] ? "•" : ""}
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-500 mt-2">Code incorrect</p>}
+
+      <div className="grid grid-cols-3 gap-3 mt-10 w-full max-w-xs">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+          <button
+            key={d}
+            onClick={() => handleDigit(d)}
+            className="h-14 rounded-2xl bg-white text-lg font-semibold text-[#3E2F22] shadow-sm active:scale-95 transition"
+          >
+            {d}
+          </button>
+        ))}
+        <div />
+        <button
+          onClick={() => handleDigit("0")}
+          className="h-14 rounded-2xl bg-white text-lg font-semibold text-[#3E2F22] shadow-sm active:scale-95 transition"
+        >
+          0
+        </button>
+        <button
+          onClick={handleDelete}
+          className="h-14 rounded-2xl bg-white/60 text-sm font-medium text-[#3E2F22]/50 active:scale-95 transition"
+        >
+          Effacer
+        </button>
+      </div>
     </div>
   );
 }
@@ -737,7 +831,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
 // App racine
 // ---------------------------------------------------------------------------
 export default function App() {
-  const [step, setStep] = useState("loading"); // loading | menu | admin | cart | slot | confirm
+  const [step, setStep] = useState("loading"); // loading | menu | pin | admin | orders | cart | slot | confirm
   const [cart, setCart] = useState({});
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [lastOrder, setLastOrder] = useState(null);
@@ -885,8 +979,12 @@ export default function App() {
           onAdd={handleAdd}
           onRemove={handleRemove}
           onGoCart={() => setStep("cart")}
-          onOpenAdmin={() => setStep("admin")}
+          onOpenAdmin={() => setStep("pin")}
         />
+      )}
+
+      {step === "pin" && (
+        <PinScreen onBack={() => setStep("menu")} onSuccess={() => setStep("admin")} />
       )}
 
       {step === "admin" && (
