@@ -110,8 +110,8 @@ const FORMULAS = [
 
 const STORAGE_KEY = "weekly-menu-content";
 
-// Créneaux fixes toutes les 20 min, retrait 9h30 à 11h (cf. flyer)
-const SLOTS = (() => {
+// Créneaux horaires fixes toutes les 20 min, retrait 9h30 à 11h (cf. flyer)
+const TIME_SLOTS = (() => {
   const slots = [];
   let h = 9, m = 30;
   while (h < 11 || (h === 11 && m === 0)) {
@@ -122,11 +122,24 @@ const SLOTS = (() => {
   return slots;
 })();
 
-const SLOT_CAPACITY = 4;
-const seededTaken = SLOTS.reduce((acc, s, i) => {
-  acc[s] = (i * 5) % 5; // pseudo-aléatoire stable, 0-4
-  return acc;
-}, {});
+// Nombre maximum de box au total, tous créneaux confondus, pour le dimanche en cours.
+const WEEKLY_BOX_LIMIT = 8;
+
+// Calcule la date (format YYYY-MM-DD) du tout prochain dimanche.
+// Si on est déjà dimanche, c'est aujourd'hui.
+function getNextSunday() {
+  const today = new Date();
+  const day = today.getDay(); // 0 = dimanche
+  const daysUntilSunday = (7 - day) % 7;
+  const d = new Date(today);
+  d.setDate(today.getDate() + daysUntilSunday);
+  return { iso: d.toISOString().slice(0, 10), date: d };
+}
+
+function formatSundayLabel(date) {
+  const formatted = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
 
 // ---------------------------------------------------------------------------
 // Motif décoratif "tampon" inspiré du logo
@@ -599,7 +612,11 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 // ---------------------------------------------------------------------------
 // Écran Créneau
 // ---------------------------------------------------------------------------
-function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm }) {
+function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel, boxAlreadyBooked, boxInCart, loadingCapacity }) {
+  const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
+  const wouldExceed = boxInCart > remaining;
+  const isFull = remaining <= 0;
+
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
       <header className="px-5 pt-6 pb-4 flex items-center gap-3">
@@ -612,21 +629,38 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm }) {
       </header>
 
       <main className="px-5">
-        <p className="text-sm text-[#3E2F22]/60 mb-1">Retrait sur place, le dimanche.</p>
-        <p className="text-xs text-[#5B6B4F] mb-5">Créneaux de 20 minutes · 9h30 – 11h00</p>
+        <p className="text-sm text-[#3E2F22]/60 mb-1">Retrait sur place, {sundayLabel ? sundayLabel.toLowerCase() : "dimanche"}.</p>
+        <p className="text-xs text-[#5B6B4F] mb-1">Créneaux de 20 minutes · 9h30 – 11h00</p>
+
+        {loadingCapacity ? (
+          <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
+        ) : isFull ? (
+          <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
+            Complet pour ce dimanche — toutes les box ont déjà été réservées. Revenez la semaine prochaine !
+          </div>
+        ) : (
+          <p className="text-xs text-[#5B6B4F] mb-5">
+            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce dimanche
+          </p>
+        )}
+
+        {!isFull && wouldExceed && (
+          <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
+            Il ne reste que {remaining} box disponible{remaining > 1 ? "s" : ""} pour ce dimanche — réduisez les quantités dans votre panier.
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-2.5">
-          {SLOTS.map((slot) => {
-            const taken = seededTaken[slot];
-            const full = taken >= SLOT_CAPACITY;
+          {TIME_SLOTS.map((slot) => {
             const isSelected = selectedSlot === slot;
+            const disabled = isFull || wouldExceed || loadingCapacity;
             return (
               <button
                 key={slot}
-                disabled={full}
+                disabled={disabled}
                 onClick={() => onSelectSlot(slot)}
                 className={`relative rounded-xl py-3 text-sm font-medium border transition ${
-                  full
+                  disabled
                     ? "bg-[#3E2F22]/5 text-[#3E2F22]/30 border-transparent cursor-not-allowed"
                     : isSelected
                     ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
@@ -634,11 +668,6 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm }) {
                 }`}
               >
                 {slot}
-                {full && (
-                  <span className="absolute -top-1.5 -right-1.5 text-[9px] bg-[#3E2F22]/20 text-white rounded-full px-1.5 py-0.5">
-                    complet
-                  </span>
-                )}
               </button>
             );
           })}
@@ -648,7 +677,7 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm }) {
       <div className="fixed bottom-5 left-0 right-0 px-5">
         <button
           onClick={onConfirm}
-          disabled={!selectedSlot}
+          disabled={!selectedSlot || isFull || wouldExceed}
           className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
         >
           <Check className="w-4 h-4" />
@@ -690,8 +719,8 @@ function ConfirmScreen({ order, onNewOrder }) {
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-[#3E2F22]/5 mt-6 p-5">
         <div className="flex items-center justify-between pb-3 border-b border-dashed border-[#3E2F22]/15">
           <span className="text-xs uppercase tracking-wide text-[#5B6B4F]">Retrait à emporter</span>
-          <span className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-            {order.slot}
+          <span className="text-base font-semibold text-[#3E2F22] text-right" style={{ fontFamily: "'Fraunces', serif" }}>
+            {order.sundayLabel ? `${order.sundayLabel} · ` : ""}{order.slot}
           </span>
         </div>
 
@@ -885,6 +914,12 @@ export default function App() {
   const [firstName, setFirstName] = useState("");
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
+
+  const nextSunday = useMemo(() => getNextSunday(), []);
+  const sundayLabel = useMemo(() => formatSundayLabel(nextSunday.date), [nextSunday]);
+  const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
 
   useEffect(() => {
     (async () => {
@@ -942,6 +977,8 @@ export default function App() {
       lines,
       total,
       slot: selectedSlot,
+      sundayIso: nextSunday.iso,
+      sundayLabel,
       firstName: firstName.trim(),
       phone: phone.trim(),
       paid: false,
@@ -1010,6 +1047,33 @@ export default function App() {
   const handleOpenOrders = () => {
     setStep("orders");
     loadOrders();
+  };
+
+  const loadSundayCapacity = async () => {
+    setLoadingCapacity(true);
+    try {
+      const list = await window.storage.list("order:", true);
+      const keys = list?.keys || [];
+      const fetched = await Promise.all(
+        keys.map(async (k) => {
+          try {
+            const r = await window.storage.get(k, true);
+            return r?.value ? JSON.parse(r.value) : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const total = fetched
+        .filter(Boolean)
+        .filter((o) => o.sundayIso === nextSunday.iso)
+        .reduce((sum, o) => sum + Object.values(o.cart || {}).reduce((s, v) => s + v.qty, 0), 0);
+      setBoxAlreadyBooked(total);
+    } catch (e) {
+      console.error("Impossible de calculer les places disponibles", e);
+      setBoxAlreadyBooked(0);
+    }
+    setLoadingCapacity(false);
   };
 
   const handleTogglePaid = async (orderId, paid) => {
@@ -1091,12 +1155,24 @@ export default function App() {
           onBack={() => setStep("menu")}
           onAdd={handleAdd}
           onRemove={handleRemove}
-          onNext={() => setStep("slot")}
+          onNext={() => {
+            setStep("slot");
+            loadSundayCapacity();
+          }}
         />
       )}
 
       {step === "slot" && (
-        <SlotScreen onBack={() => setStep("cart")} selectedSlot={selectedSlot} onSelectSlot={setSelectedSlot} onConfirm={handleConfirmOrder} />
+        <SlotScreen
+          onBack={() => setStep("cart")}
+          selectedSlot={selectedSlot}
+          onSelectSlot={setSelectedSlot}
+          onConfirm={handleConfirmOrder}
+          sundayLabel={sundayLabel}
+          boxAlreadyBooked={boxAlreadyBooked}
+          boxInCart={boxInCart}
+          loadingCapacity={loadingCapacity}
+        />
       )}
 
       {step === "confirm" && lastOrder && <ConfirmScreen order={lastOrder} onNewOrder={handleNewOrder} />}
