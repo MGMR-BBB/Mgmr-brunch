@@ -932,14 +932,16 @@ export default function App() {
 
     // Notification push (ntfy.sh) pour avertir immédiatement de la commande
     try {
-      await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+      await fetch(`https://ntfy.sh/`, {
         method: "POST",
-        headers: {
-          Title: `Nouvelle commande · ${order.total.toFixed(2)} €`,
-          Priority: "high",
-          Tags: "shopping_cart",
-        },
-        body: `${order.firstName || "Client"} · ${order.phone}\n${order.lines.join(", ")}\nRetrait : ${order.slot}`,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: NTFY_TOPIC,
+          title: `Nouvelle commande - ${order.total.toFixed(2)} EUR`,
+          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join(", ")}\nRetrait : ${order.slot}`,
+          priority: 5,
+          tags: ["shopping_cart"],
+        }),
       });
     } catch (e) {
       console.error("Notification push non envoyée", e);
