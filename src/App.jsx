@@ -16,6 +16,7 @@ import {
   CircleDollarSign,
   ListChecks,
   Copy,
+  Trash2,
   Lock,
 } from "lucide-react";
 
@@ -742,8 +743,9 @@ function ConfirmScreen({ order, onNewOrder }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : Commandes du jour — pour générer et suivre les paiements
 // ---------------------------------------------------------------------------
-function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
+function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
   const [copiedId, setCopiedId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const sorted = [...orders].sort((a, b) => (a.slot || "").localeCompare(b.slot || ""));
   const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
@@ -753,6 +755,16 @@ function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
     navigator.clipboard?.writeText(text);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 1500);
+  };
+
+  const handleDeleteClick = (orderId) => {
+    if (confirmDeleteId === orderId) {
+      onDelete(orderId);
+      setConfirmDeleteId(null);
+    } else {
+      setConfirmDeleteId(orderId);
+      setTimeout(() => setConfirmDeleteId((id) => (id === orderId ? null : id)), 3000);
+    }
   };
 
   return (
@@ -841,6 +853,18 @@ function OrdersScreen({ orders, onBack, onTogglePaid, loading }) {
                 {order.paid ? "Marquer non payée" : "Marquer payée"}
               </button>
             </div>
+
+            <button
+              onClick={() => handleDeleteClick(order.id)}
+              className={`w-full flex items-center justify-center gap-1.5 text-xs font-medium rounded-full py-2 mt-2 active:scale-95 transition ${
+                confirmDeleteId === order.id
+                  ? "bg-red-500 text-white"
+                  : "bg-transparent text-red-400/70"
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              {confirmDeleteId === order.id ? "Confirmer la suppression" : "Supprimer cette commande"}
+            </button>
           </div>
         ))}
       </main>
@@ -1000,6 +1024,15 @@ export default function App() {
     }
   };
 
+  const handleDeleteOrder = async (orderId) => {
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    try {
+      await window.storage.delete(`order:${orderId}`, true);
+    } catch (e) {
+      console.error("Impossible de supprimer la commande", e);
+    }
+  };
+
   if (step === "loading") {
     return (
       <div className="min-h-screen bg-[#FBF3E7] flex items-center justify-center">
@@ -1039,7 +1072,13 @@ export default function App() {
       )}
 
       {step === "orders" && (
-        <OrdersScreen orders={orders} loading={ordersLoading} onBack={() => setStep("admin")} onTogglePaid={handleTogglePaid} />
+        <OrdersScreen
+          orders={orders}
+          loading={ordersLoading}
+          onBack={() => setStep("admin")}
+          onTogglePaid={handleTogglePaid}
+          onDelete={handleDeleteOrder}
+        />
       )}
 
       {step === "cart" && (
