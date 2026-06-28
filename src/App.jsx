@@ -23,6 +23,10 @@ import {
 // commandes du jour). Seule la personne qui connaît ce code peut y entrer.
 const ADMIN_PIN = "1208";
 
+// Canal de notification push (app ntfy.sh) — une notification est envoyée
+// à ce canal à chaque nouvelle commande confirmée.
+const NTFY_TOPIC = "mgmr-brunch82-cmd9k2";
+
 // ---------------------------------------------------------------------------
 // Les 5 formules : structure et prix FIXES (ne changent pas).
 // Seul le contenu (liste d'ingrédients) change chaque semaine via l'admin.
@@ -925,6 +929,22 @@ export default function App() {
     } catch (e) {
       console.error("Impossible d'enregistrer la commande", e);
     }
+
+    // Notification push (ntfy.sh) pour avertir immédiatement de la commande
+    try {
+      await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+        method: "POST",
+        headers: {
+          Title: `Nouvelle commande · ${order.total.toFixed(2)} €`,
+          Priority: "high",
+          Tags: "shopping_cart",
+        },
+        body: `${order.firstName || "Client"} · ${order.phone}\n${order.lines.join(", ")}\nRetrait : ${order.slot}`,
+      });
+    } catch (e) {
+      console.error("Notification push non envoyée", e);
+    }
+
     setLastOrder(order);
     setStep("confirm");
   };
