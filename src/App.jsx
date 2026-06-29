@@ -1078,21 +1078,26 @@ export default function App() {
     // Webhook Zapier : déclenche la création du lien de paiement SumUp
     // et son envoi automatique par SMS au client.
     try {
-      await fetch(ZAPIER_WEBHOOK_URL, {
+      const zapierPayload = {
+        orderId: order.id,
+        firstName: order.firstName,
+        phone: order.phone,
+        total: order.total,
+        currency: "EUR",
+        description: `MGMR Box Brunch - ${order.lines.join(", ")} - Retrait ${order.sundayLabel || ""} ${order.slot}`,
+        sundayIso: order.sundayIso,
+        slot: order.slot,
+      };
+      const zapierResponse = await fetch(ZAPIER_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderId: order.id,
-          firstName: order.firstName,
-          phone: order.phone,
-          total: order.total,
-          currency: "EUR",
-          description: `MGMR Box Brunch - ${order.lines.join(", ")} - Retrait ${order.sundayLabel || ""} ${order.slot}`,
-          sundayIso: order.sundayIso,
-          slot: order.slot,
-        }),
+        body: JSON.stringify(zapierPayload),
       });
+      // DIAGNOSTIC TEMPORAIRE : affiche le résultat de l'appel à l'écran
+      alert(`Zapier appelé. Statut HTTP : ${zapierResponse.status}\nDonnées envoyées : ${JSON.stringify(zapierPayload)}`);
     } catch (e) {
+      // DIAGNOSTIC TEMPORAIRE : affiche l'erreur exacte à l'écran
+      alert(`Erreur webhook Zapier : ${e.message || e}`);
       console.error("Webhook Zapier non envoyé", e);
     }
 
