@@ -1077,6 +1077,9 @@ export default function App() {
 
     // Webhook Zapier : déclenche la création du lien de paiement SumUp
     // et son envoi automatique par SMS au client.
+    // Note : mode "no-cors" car le endpoint Zapier ne renvoie pas les
+    // en-têtes CORS nécessaires pour lire la réponse depuis le navigateur.
+    // La requête part bien quand même, on ne peut juste pas lire le résultat.
     try {
       const zapierPayload = {
         orderId: order.id,
@@ -1088,13 +1091,14 @@ export default function App() {
         sundayIso: order.sundayIso,
         slot: order.slot,
       };
-      const zapierResponse = await fetch(ZAPIER_WEBHOOK_URL, {
+      await fetch(ZAPIER_WEBHOOK_URL, {
         method: "POST",
+        mode: "no-cors",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(zapierPayload),
       });
-      // DIAGNOSTIC TEMPORAIRE : affiche le résultat de l'appel à l'écran
-      alert(`Zapier appelé. Statut HTTP : ${zapierResponse.status}\nDonnées envoyées : ${JSON.stringify(zapierPayload)}`);
+      // DIAGNOSTIC TEMPORAIRE : confirme que l'envoi a été tenté
+      alert(`Requête envoyée à Zapier (mode no-cors, statut non lisible).\nDonnées envoyées : ${JSON.stringify(zapierPayload)}`);
     } catch (e) {
       // DIAGNOSTIC TEMPORAIRE : affiche l'erreur exacte à l'écran
       alert(`Erreur webhook Zapier : ${e.message || e}`);
