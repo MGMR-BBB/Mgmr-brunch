@@ -28,10 +28,6 @@ const ADMIN_PIN = "1208";
 // à ce canal à chaque nouvelle commande confirmée.
 const NTFY_TOPIC = "mgmr-brunch82-cmd9k2";
 
-// Webhook Zapier : déclenche la création + l'envoi automatique du lien de
-// paiement SumUp par SMS au client, dès qu'une commande est confirmée.
-const ZAPIER_WEBHOOK_URL = "https://hooks.zapier.com/hooks/catch/28089715/42g589e/";
-
 // ---------------------------------------------------------------------------
 // Les 5 formules : structure et prix FIXES (ne changent pas).
 // Seul le contenu (liste d'ingrédients) change chaque semaine via l'admin.
@@ -1073,36 +1069,6 @@ export default function App() {
       });
     } catch (e) {
       console.error("Notification push non envoyée", e);
-    }
-
-    // Webhook Zapier : déclenche la création du lien de paiement SumUp
-    // et son envoi automatique par SMS au client.
-    // Note : mode "no-cors" car le endpoint Zapier ne renvoie pas les
-    // en-têtes CORS nécessaires pour lire la réponse depuis le navigateur.
-    // La requête part bien quand même, on ne peut juste pas lire le résultat.
-    try {
-      const zapierPayload = {
-        orderId: order.id,
-        firstName: order.firstName,
-        phone: order.phone,
-        total: order.total,
-        currency: "EUR",
-        description: `MGMR Box Brunch - ${order.lines.join(", ")} - Retrait ${order.sundayLabel || ""} ${order.slot}`,
-        sundayIso: order.sundayIso,
-        slot: order.slot,
-      };
-      await fetch(ZAPIER_WEBHOOK_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(zapierPayload),
-      });
-      // DIAGNOSTIC TEMPORAIRE : confirme que l'envoi a été tenté
-      alert(`Requête envoyée à Zapier (mode no-cors, statut non lisible).\nDonnées envoyées : ${JSON.stringify(zapierPayload)}`);
-    } catch (e) {
-      // DIAGNOSTIC TEMPORAIRE : affiche l'erreur exacte à l'écran
-      alert(`Erreur webhook Zapier : ${e.message || e}`);
-      console.error("Webhook Zapier non envoyé", e);
     }
 
     setLastOrder(order);
