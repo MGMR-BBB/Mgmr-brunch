@@ -141,6 +141,39 @@ function formatSundayLabel(date) {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
+// Fenêtre de commande : ouverte du dimanche 12h00 au jeudi 18h00.
+// JS getDay() : 0 = dimanche, 1 = lundi, ..., 4 = jeudi, ..., 6 = samedi.
+function getOrderWindowStatus() {
+  const now = new Date();
+  const day = now.getDay();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const totalMinutes = hour * 60 + minute;
+
+  let isOpen;
+  if (day === 0) {
+    // Dimanche : ouvert à partir de 12h00
+    isOpen = totalMinutes >= 12 * 60;
+  } else if (day >= 1 && day <= 3) {
+    // Lundi, mardi, mercredi : toute la journée
+    isOpen = true;
+  } else if (day === 4) {
+    // Jeudi : ouvert jusqu'à 18h00
+    isOpen = totalMinutes < 18 * 60;
+  } else {
+    // Vendredi, samedi : fermé
+    isOpen = false;
+  }
+
+  // Calcule la prochaine réouverture (le dimanche suivant à 12h00) pour l'afficher si fermé.
+  const daysUntilSunday = (7 - day) % 7;
+  const nextOpening = new Date(now);
+  nextOpening.setDate(now.getDate() + (daysUntilSunday === 0 && !isOpen ? 7 : daysUntilSunday));
+  nextOpening.setHours(12, 0, 0, 0);
+
+  return { isOpen, nextOpening };
+}
+
 // ---------------------------------------------------------------------------
 // Motif décoratif "tampon" inspiré du logo
 // ---------------------------------------------------------------------------
@@ -168,8 +201,17 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 // Écran Menu (vitrine client)
 // ---------------------------------------------------------------------------
-function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin }) {
+function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow }) {
   const totalCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b.qty, 0), [cart]);
+  const isOpen = orderWindow.isOpen;
+  const nextOpeningLabel = useMemo(() => {
+    if (isOpen) return null;
+    return orderWindow.nextOpening.toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  }, [orderWindow, isOpen]);
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -200,6 +242,13 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
       </header>
 
       <main className="px-5">
+        {!isOpen && (
+          <div className="bg-[#C97B63]/10 rounded-xl px-4 py-3 text-sm text-[#C97B63] mb-5 text-center">
+            <span className="font-semibold block mb-0.5">Commandes fermées pour le moment</span>
+            Réouverture {nextOpeningLabel} à 12h00
+          </div>
+        )}
+
         <SectionEyebrow>Les box de la semaine</SectionEyebrow>
         <div className="mt-5 flex flex-col gap-4">
           {FORMULAS.map((formula) => {
@@ -226,29 +275,35 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
                     </div>
                   </div>
 
-                  {qty === 0 ? (
-                    <button
-                      onClick={() => onAdd(formula.id)}
-                      className="shrink-0 w-9 h-9 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition"
-                      aria-label={`Ajouter ${formula.name}`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
-                      <button
-                        onClick={() => onRemove(formula.id)}
-                        className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{qty}</span>
+                  {isOpen ? (
+                    qty === 0 ? (
                       <button
                         onClick={() => onAdd(formula.id)}
-                        className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95"
+                        className="shrink-0 w-9 h-9 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition"
+                        aria-label={`Ajouter ${formula.name}`}
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-4 h-4" />
                       </button>
+                    ) : (
+                      <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
+                        <button
+                          onClick={() => onRemove(formula.id)}
+                          className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{qty}</span>
+                        <button
+                          onClick={() => onAdd(formula.id)}
+                          className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-[#3E2F22]/5 flex items-center justify-center text-[#3E2F22]/30">
+                      <Plus className="w-4 h-4" />
                     </div>
                   )}
                 </div>
@@ -267,7 +322,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
         </div>
       </main>
 
-      {totalCount > 0 && (
+      {isOpen && totalCount > 0 && (
         <div className="fixed bottom-5 left-0 right-0 px-5">
           <button
             onClick={onGoCart}
@@ -920,6 +975,7 @@ export default function App() {
   const nextSunday = useMemo(() => getNextSunday(), []);
   const sundayLabel = useMemo(() => formatSundayLabel(nextSunday.date), [nextSunday]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
+  const orderWindow = useMemo(() => getOrderWindowStatus(), []);
 
   useEffect(() => {
     (async () => {
@@ -961,6 +1017,13 @@ export default function App() {
   };
 
   const handleConfirmOrder = async () => {
+    // Sécurité : revérifie que la fenêtre de commande est toujours ouverte
+    // (utile si quelqu'un est resté sur la page plus longtemps que prévu).
+    if (!getOrderWindowStatus().isOpen) {
+      setStep("menu");
+      return;
+    }
+
     const items = Object.entries(cart).filter(([, v]) => v.qty > 0);
     const total = items.reduce((sum, [id, v]) => {
       const formula = FORMULAS.find((f) => f.id === id);
@@ -1119,6 +1182,7 @@ export default function App() {
           onRemove={handleRemove}
           onGoCart={() => setStep("cart")}
           onOpenAdmin={() => setStep("pin")}
+          orderWindow={orderWindow}
         />
       )}
 
