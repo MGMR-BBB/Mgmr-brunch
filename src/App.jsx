@@ -106,7 +106,29 @@ const FORMULAS = [
       "Pain & crackers",
     ],
   },
+  {
+    id: "coupedumonde",
+    name: "Box Coupe du Monde",
+    price: 30,
+    people: "1 personne",
+    emoji: "⚽",
+    eventDate: "2026-07-14", // Visible uniquement jusqu'à cette date incluse
+    eventSlots: ["18h30", "19h00", "19h30", "20h00"],
+    badge: "14 juillet 🎆",
+    defaultItems: [
+      "À définir — modifiable via l'admin",
+    ],
+  },
 ];
+
+// Date de l'événement Coupe du Monde (14 juillet 2026)
+const COUPE_DU_MONDE_DATE = "2026-07-14";
+
+// Vérifie si la box Coupe du Monde est encore disponible (avant ou le jour J)
+function isCoupeDuMondeActive() {
+  const today = new Date().toISOString().slice(0, 10);
+  return today <= COUPE_DU_MONDE_DATE;
+}
 
 const STORAGE_KEY = "weekly-menu-content";
 
@@ -251,11 +273,20 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
 
         <SectionEyebrow>Les box de la semaine</SectionEyebrow>
         <div className="mt-5 flex flex-col gap-4">
-          {FORMULAS.map((formula) => {
+          {FORMULAS.filter((f) => !f.eventDate || isCoupeDuMondeActive()).map((formula) => {
             const qty = cart[formula.id]?.qty || 0;
             const items = weeklyContent[formula.id]?.length ? weeklyContent[formula.id] : formula.defaultItems;
+            const isEvent = !!formula.eventDate;
             return (
-              <div key={formula.id} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+              <div key={formula.id} className={`bg-white rounded-2xl p-4 shadow-sm border ${isEvent ? "border-[#C97B63]/30 ring-1 ring-[#C97B63]/20" : "border-[#3E2F22]/5"}`}>
+                {isEvent && (
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <span className="text-xs font-semibold text-white bg-[#C97B63] rounded-full px-2.5 py-1">
+                      {formula.badge}
+                    </span>
+                    <span className="text-xs text-[#C97B63]">Soirée spéciale · créneaux 18h30–20h00</span>
+                  </div>
+                )}
                 <div className="flex gap-3 items-center">
                   <div
                     className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
@@ -667,10 +698,19 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 // ---------------------------------------------------------------------------
 // Écran Créneau
 // ---------------------------------------------------------------------------
-function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel, boxAlreadyBooked, boxInCart, loadingCapacity }) {
+function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel, boxAlreadyBooked, boxInCart, loadingCapacity, isEventOrder }) {
   const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
   const wouldExceed = boxInCart > remaining;
   const isFull = remaining <= 0;
+
+  const coupeDuMondeFormula = FORMULAS.find((f) => f.id === "coupedumonde");
+  const activeSlots = isEventOrder ? coupeDuMondeFormula.eventSlots : TIME_SLOTS;
+  const retaitLabel = isEventOrder
+    ? "Mardi 14 juillet · Soirée Coupe du Monde"
+    : `Retrait sur place, ${sundayLabel ? sundayLabel.toLowerCase() : "dimanche"}.`;
+  const creneauxLabel = isEventOrder
+    ? "Créneaux de 30 minutes · 18h30 – 20h00"
+    : "Créneaux de 20 minutes · 9h30 – 11h00";
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -684,16 +724,16 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel
       </header>
 
       <main className="px-5">
-        <p className="text-sm text-[#3E2F22]/60 mb-1">Retrait sur place, {sundayLabel ? sundayLabel.toLowerCase() : "dimanche"}.</p>
-        <p className="text-xs text-[#5B6B4F] mb-1">Créneaux de 20 minutes · 9h30 – 11h00</p>
+        <p className="text-sm text-[#3E2F22]/60 mb-1">{retaitLabel}</p>
+        <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
 
-        {loadingCapacity ? (
+        {!isEventOrder && loadingCapacity ? (
           <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
-        ) : isFull ? (
+        ) : !isEventOrder && isFull ? (
           <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
             Complet pour ce dimanche — toutes les box ont déjà été réservées. Revenez la semaine prochaine !
           </div>
-        ) : (
+        ) : !isEventOrder ? (
           <p className="text-xs text-[#5B6B4F] mb-5">
             {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce dimanche
           </p>
@@ -706,9 +746,9 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel
         )}
 
         <div className="grid grid-cols-3 gap-2.5">
-          {TIME_SLOTS.map((slot) => {
+          {activeSlots.map((slot) => {
             const isSelected = selectedSlot === slot;
-            const disabled = isFull || wouldExceed || loadingCapacity;
+            const disabled = !isEventOrder && (isFull || wouldExceed || loadingCapacity);
             return (
               <button
                 key={slot}
@@ -732,7 +772,7 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel
       <div className="fixed bottom-5 left-0 right-0 px-5">
         <button
           onClick={onConfirm}
-          disabled={!selectedSlot || isFull || wouldExceed}
+          disabled={!selectedSlot || (!isEventOrder && (isFull || wouldExceed))}
           className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
         >
           <Check className="w-4 h-4" />
@@ -976,6 +1016,8 @@ export default function App() {
   const sundayLabel = useMemo(() => formatSundayLabel(nextSunday.date), [nextSunday]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
   const orderWindow = useMemo(() => getOrderWindowStatus(), []);
+  // Détecte si la commande contient la box Coupe du Monde (créneaux spéciaux)
+  const isEventOrder = useMemo(() => !!cart.coupedumonde?.qty, [cart]);
 
   useEffect(() => {
     (async () => {
@@ -1236,6 +1278,7 @@ export default function App() {
           boxAlreadyBooked={boxAlreadyBooked}
           boxInCart={boxInCart}
           loadingCapacity={loadingCapacity}
+          isEventOrder={isEventOrder}
         />
       )}
 
