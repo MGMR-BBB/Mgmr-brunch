@@ -727,16 +727,18 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel
         <p className="text-sm text-[#3E2F22]/60 mb-1">{retaitLabel}</p>
         <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
 
-        {!isEventOrder && loadingCapacity ? (
-          <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
-        ) : !isEventOrder && isFull ? (
-          <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
-            Complet pour ce dimanche — toutes les box ont déjà été réservées. Revenez la semaine prochaine !
-          </div>
-        ) : !isEventOrder ? (
-          <p className="text-xs text-[#5B6B4F] mb-5">
-            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce dimanche
-          </p>
+        {!isEventOrder && (
+          loadingCapacity ? (
+            <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
+          ) : isFull ? (
+            <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
+              Complet pour ce dimanche — toutes les box ont déjà été réservées. Revenez la semaine prochaine !
+            </div>
+          ) : (
+            <p className="text-xs text-[#5B6B4F] mb-5">
+              {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce dimanche
+            </p>
+          )
         )}
 
         {!isFull && wouldExceed && (
