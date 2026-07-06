@@ -110,7 +110,7 @@ const FORMULAS = [
     id: "coupedumonde",
     name: "Box Coupe du Monde",
     price: 30,
-    people: "1 personne",
+    people: "2 personnes",
     emoji: "⚽",
     eventDate: "2026-07-14", // Visible uniquement jusqu'à cette date incluse
     eventSlots: ["18h30", "19h00", "19h30", "20h00"],
