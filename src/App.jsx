@@ -112,8 +112,8 @@ const FORMULAS = [
     price: 30,
     people: "2 personnes",
     emoji: "⚽",
-    eventDate: "2026-07-14", // Visible uniquement jusqu'à cette date incluse
-    eventSlots: ["18h30", "19h00", "19h30", "20h00"],
+    eventDate: "2026-07-14",
+    eventSlots: ["18h30", "18h50", "19h10", "19h30", "19h50", "20h10", "20h30"],
     badge: "14 juillet 🎆",
     defaultItems: [
       "À définir — modifiable via l'admin",
@@ -123,6 +123,16 @@ const FORMULAS = [
 
 // Date de l'événement Coupe du Monde (14 juillet 2026)
 const COUPE_DU_MONDE_DATE = "2026-07-14";
+
+// Fenêtre de réservation Coupe du Monde : lundi 7 juillet 8h → dimanche 13 juillet 21h
+const CDM_RESERVATION_START = new Date("2026-07-07T08:00:00");
+const CDM_RESERVATION_END   = new Date("2026-07-13T21:00:00");
+
+// Retourne true si on est dans la fenêtre de réservation Coupe du Monde
+function isCDMReservationOpen() {
+  const now = new Date();
+  return now >= CDM_RESERVATION_START && now <= CDM_RESERVATION_END;
+}
 
 // Vérifie si la box Coupe du Monde est encore disponible (avant ou le jour J)
 function isCoupeDuMondeActive() {
@@ -225,7 +235,8 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow }) {
   const totalCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b.qty, 0), [cart]);
-  const isOpen = orderWindow.isOpen;
+  const cdmMode = isCDMReservationOpen(); // Mode Coupe du Monde : site dédié uniquement
+  const isOpen = cdmMode || orderWindow.isOpen; // En mode CDM, les commandes sont toujours ouvertes
   const nextOpeningLabel = useMemo(() => {
     if (isOpen) return null;
     return orderWindow.nextOpening.toLocaleDateString("fr-FR", {
@@ -234,6 +245,11 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
       month: "long",
     });
   }, [orderWindow, isOpen]);
+
+  // En mode CDM, on n'affiche que la box Coupe du Monde
+  const visibleFormulas = cdmMode
+    ? FORMULAS.filter((f) => f.id === "coupedumonde")
+    : FORMULAS.filter((f) => !f.eventDate || isCoupeDuMondeActive());
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -271,9 +287,14 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
           </div>
         )}
 
-        <SectionEyebrow>Les box de la semaine</SectionEyebrow>
+        <SectionEyebrow>{cdmMode ? "Soirée Coupe du Monde ⚽" : "Les box de la semaine"}</SectionEyebrow>
+        {cdmMode && (
+          <p className="text-center text-xs text-[#C97B63] mt-2 mb-1">
+            Réservation ouverte jusqu'au dimanche 13 juillet à 21h
+          </p>
+        )}
         <div className="mt-5 flex flex-col gap-4">
-          {FORMULAS.filter((f) => !f.eventDate || isCoupeDuMondeActive()).map((formula) => {
+          {visibleFormulas.map((formula) => {
             const qty = cart[formula.id]?.qty || 0;
             const items = weeklyContent[formula.id]?.length ? weeklyContent[formula.id] : formula.defaultItems;
             const isEvent = !!formula.eventDate;
@@ -1018,8 +1039,9 @@ export default function App() {
   const sundayLabel = useMemo(() => formatSundayLabel(nextSunday.date), [nextSunday]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
   const orderWindow = useMemo(() => getOrderWindowStatus(), []);
-  // Détecte si la commande contient la box Coupe du Monde (créneaux spéciaux)
-  const isEventOrder = useMemo(() => !!cart.coupedumonde?.qty, [cart]);
+  const cdmMode = useMemo(() => isCDMReservationOpen(), []);
+  // En mode CDM ou si le panier contient la box Coupe du Monde → créneaux spéciaux
+  const isEventOrder = useMemo(() => cdmMode || !!cart.coupedumonde?.qty, [cdmMode, cart]);
 
   useEffect(() => {
     (async () => {
