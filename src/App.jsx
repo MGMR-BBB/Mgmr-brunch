@@ -1083,9 +1083,9 @@ export default function App() {
   };
 
   const handleConfirmOrder = async () => {
-    // Sécurité : revérifie que la fenêtre de commande est toujours ouverte
-    // (utile si quelqu'un est resté sur la page plus longtemps que prévu).
-    if (!getOrderWindowStatus().isOpen) {
+    // Sécurité : revérifie que la fenêtre de commande est toujours ouverte.
+    // En mode CDM, la fenêtre de réservation spéciale prend le dessus.
+    if (!isCDMReservationOpen() && !getOrderWindowStatus().isOpen) {
       setStep("menu");
       return;
     }
