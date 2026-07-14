@@ -109,60 +109,82 @@ const FORMULAS = [
 ];
 
 const STORAGE_KEY = "weekly-menu-content";
+const BLOCKED_SUNDAYS_KEY = "blocked-sundays";
+const DAY_AVAILABILITY_KEY = "day-availability"; // { saturday: true/false, sunday: true/false }
 
-// Créneaux horaires fixes toutes les 15 min, retrait 10h00 à 11h00 le dimanche
-const TIME_SLOTS = ["10h00", "10h15", "10h30", "10h45", "11h00"];
+// Créneaux dimanche : 10h00–11h00 toutes les 15 min
+const TIME_SLOTS_SUNDAY = ["10h00", "10h15", "10h30", "10h45", "11h00"];
 
-// Nombre maximum de box au total, tous créneaux confondus, pour le dimanche en cours.
+// Créneaux samedi : 18h30–19h30 toutes les 15 min
+const TIME_SLOTS_SATURDAY = ["18h30", "18h45", "19h00", "19h15", "19h30"];
+
+// Box disponibles le samedi (apéro uniquement)
+const SATURDAY_FORMULA_IDS = ["apero", "bigbox"];
+
 const WEEKLY_BOX_LIMIT = 8;
 
-// Calcule la date (format YYYY-MM-DD) du tout prochain dimanche.
-// Si on est déjà dimanche, c'est aujourd'hui.
-function getNextSunday() {
+// Calcule le prochain dimanche disponible (non bloqué)
+function getNextAvailableSunday(blockedSundays = []) {
   const today = new Date();
-  const day = today.getDay(); // 0 = dimanche
+  const day = today.getDay();
   const daysUntilSunday = (7 - day) % 7;
-  const d = new Date(today);
+  let d = new Date(today);
   d.setDate(today.getDate() + daysUntilSunday);
+  for (let i = 0; i < 8; i++) {
+    const iso = d.toISOString().slice(0, 10);
+    if (!blockedSundays.includes(iso)) {
+      return { iso, date: new Date(d) };
+    }
+    d.setDate(d.getDate() + 7);
+  }
+  const fallback = new Date(today);
+  fallback.setDate(today.getDate() + daysUntilSunday);
+  return { iso: fallback.toISOString().slice(0, 10), date: fallback };
+}
+
+// Calcule le prochain samedi
+function getNextSaturday() {
+  const today = new Date();
+  const day = today.getDay(); // 6 = samedi
+  const daysUntilSaturday = (6 - day + 7) % 7;
+  const d = new Date(today);
+  d.setDate(today.getDate() + daysUntilSaturday);
   return { iso: d.toISOString().slice(0, 10), date: d };
 }
 
-function formatSundayLabel(date) {
+function formatDayLabel(date) {
   const formatted = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
 // Fenêtre de commande : ouverte du dimanche 12h00 au jeudi 18h00.
-// JS getDay() : 0 = dimanche, 1 = lundi, ..., 4 = jeudi, ..., 6 = samedi.
-function getOrderWindowStatus() {
+// dayAvailability = { saturday: bool, sunday: bool }
+function getOrderWindowStatus(blockedSundays = [], dayAvailability = { saturday: false, sunday: true }) {
   const now = new Date();
   const day = now.getDay();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const totalMinutes = hour * 60 + minute;
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const nextSunday = getNextAvailableSunday(blockedSundays);
+  const nextSaturday = getNextSaturday();
 
   let isOpen;
   if (day === 0) {
-    // Dimanche : ouvert à partir de 12h00
-    isOpen = totalMinutes >= 12 * 60;
+    const todayIso = now.toISOString().slice(0, 10);
+    isOpen = !blockedSundays.includes(todayIso) && dayAvailability.sunday && totalMinutes >= 12 * 60;
   } else if (day >= 1 && day <= 3) {
-    // Lundi, mardi, mercredi : toute la journée
-    isOpen = true;
+    isOpen = dayAvailability.sunday || dayAvailability.saturday;
   } else if (day === 4) {
-    // Jeudi : ouvert jusqu'à 18h00
-    isOpen = totalMinutes < 18 * 60;
+    isOpen = (dayAvailability.sunday || dayAvailability.saturday) && totalMinutes < 18 * 60;
   } else {
-    // Vendredi, samedi : fermé
     isOpen = false;
   }
 
-  // Calcule la prochaine réouverture (le dimanche suivant à 12h00) pour l'afficher si fermé.
   const daysUntilSunday = (7 - day) % 7;
   const nextOpening = new Date(now);
   nextOpening.setDate(now.getDate() + (daysUntilSunday === 0 && !isOpen ? 7 : daysUntilSunday));
   nextOpening.setHours(12, 0, 0, 0);
 
-  return { isOpen, nextOpening };
+  return { isOpen, nextOpening, nextSunday, nextSaturday };
 }
 
 // ---------------------------------------------------------------------------
@@ -192,19 +214,28 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 // Écran Menu (vitrine client)
 // ---------------------------------------------------------------------------
-function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow }) {
+function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow, dayAvailability }) {
   const totalCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b.qty, 0), [cart]);
   const isOpen = orderWindow.isOpen;
+
+  const todayDay = new Date().getDay();
+  const satOnly = dayAvailability.saturday && !dayAvailability.sunday;
+  const isSaturdayMode = satOnly || (dayAvailability.saturday && todayDay === 6);
+
+  const visibleFormulas = isSaturdayMode
+    ? FORMULAS.filter((f) => SATURDAY_FORMULA_IDS.includes(f.id))
+    : FORMULAS;
+
+  const targetDayLabel = isSaturdayMode
+    ? (orderWindow.nextSaturday ? formatDayLabel(orderWindow.nextSaturday.date) : "samedi")
+    : (orderWindow.nextSunday ? formatDayLabel(orderWindow.nextSunday.date) : "dimanche");
+
   const nextOpeningLabel = useMemo(() => {
     if (isOpen) return null;
     return orderWindow.nextOpening.toLocaleDateString("fr-FR", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
+      weekday: "long", day: "numeric", month: "long",
     });
   }, [orderWindow, isOpen]);
-
-  const visibleFormulas = FORMULAS;
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -241,8 +272,16 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
             Réouverture {nextOpeningLabel} à 12h00
           </div>
         )}
+        {isOpen && (
+          <p className="text-center text-xs text-[#5B6B4F] mb-3">
+            Retrait {targetDayLabel ? targetDayLabel.toLowerCase() : ""}
+            {isSaturdayMode ? " · 18h30–19h30" : " · 10h00–11h00"}
+          </p>
+        )}
 
-        <SectionEyebrow>Les box de la semaine</SectionEyebrow>
+        <SectionEyebrow>
+          {isSaturdayMode ? "Box Apéro du samedi" : "Les box de la semaine"}
+        </SectionEyebrow>
         <div className="mt-5 flex flex-col gap-4">
           {visibleFormulas.map((formula) => {
             const qty = cart[formula.id]?.qty || 0;
@@ -426,7 +465,7 @@ function PinScreen({ onBack, onSuccess }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : édition du contenu hebdomadaire (partagé)
 // ---------------------------------------------------------------------------
-function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders }) {
+function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSundays, onSaveBlocked, dayAvailability, onSaveDayAvailability }) {
   const [draft, setDraft] = useState(() => {
     const initial = {};
     FORMULAS.forEach((f) => {
@@ -437,6 +476,18 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders }) {
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [newBlockedDate, setNewBlockedDate] = useState("");
+
+  const handleAddBlocked = () => {
+    if (!newBlockedDate) return;
+    const updated = [...new Set([...blockedSundays, newBlockedDate])].sort();
+    onSaveBlocked(updated);
+    setNewBlockedDate("");
+  };
+
+  const handleRemoveBlocked = (date) => {
+    onSaveBlocked(blockedSundays.filter((d) => d !== date));
+  };
 
   const handleChange = (id, text) => {
     setDraft((prev) => ({ ...prev, [id]: text }));
@@ -511,6 +562,83 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders }) {
             <p className="text-[11px] text-[#3E2F22]/40 mt-1.5">Un élément par ligne</p>
           </div>
         ))}
+
+        {/* Disponibilité des jours */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
+            📆 Jours disponibles cette semaine
+          </h3>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#3E2F22] font-medium">Samedi soir 🧀</p>
+                <p className="text-xs text-[#3E2F22]/50">Box Apéro & BigBox · 18h30–19h30</p>
+              </div>
+              <button
+                onClick={() => onSaveDayAvailability({ ...dayAvailability, saturday: !dayAvailability.saturday })}
+                className={`w-12 h-6 rounded-full transition-colors relative ${dayAvailability.saturday ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${dayAvailability.saturday ? "translate-x-6" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#3E2F22] font-medium">Dimanche matin 🥐</p>
+                <p className="text-xs text-[#3E2F22]/50">Toutes les box · 10h00–11h00</p>
+              </div>
+              <button
+                onClick={() => onSaveDayAvailability({ ...dayAvailability, sunday: !dayAvailability.sunday })}
+                className={`w-12 h-6 rounded-full transition-colors relative ${dayAvailability.sunday ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${dayAvailability.sunday ? "translate-x-6" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Section dimanches sans box */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
+            📅 Dimanches sans box
+          </h3>
+          <p className="text-xs text-[#3E2F22]/50 mb-3">
+            Ajoute les dates (AAAA-MM-JJ) des dimanches où il n'y a pas de box. Les commandes seront automatiquement redirigées vers le dimanche suivant disponible.
+          </p>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="date"
+              value={newBlockedDate}
+              onChange={(e) => setNewBlockedDate(e.target.value)}
+              className="flex-1 text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2 outline-none border border-transparent focus:border-[#C97B63]/40"
+            />
+            <button
+              onClick={handleAddBlocked}
+              disabled={!newBlockedDate}
+              className="bg-[#C97B63] text-white text-sm font-medium px-3 py-2 rounded-xl active:scale-95 transition disabled:opacity-40"
+            >
+              Ajouter
+            </button>
+          </div>
+          {blockedSundays.length === 0 ? (
+            <p className="text-xs text-[#3E2F22]/40">Aucun dimanche bloqué.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {blockedSundays.map((date) => (
+                <div key={date} className="flex items-center justify-between bg-[#FBF3E7] rounded-xl px-3 py-2">
+                  <span className="text-sm text-[#3E2F22]">
+                    {new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  </span>
+                  <button
+                    onClick={() => handleRemoveBlocked(date)}
+                    className="text-red-400 text-xs active:scale-95 transition ml-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       <div className="fixed bottom-5 left-0 right-0 px-5">
@@ -661,10 +789,12 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 // ---------------------------------------------------------------------------
 // Écran Créneau
 // ---------------------------------------------------------------------------
-function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel, boxAlreadyBooked, boxInCart, loadingCapacity }) {
+function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, boxAlreadyBooked, boxInCart, loadingCapacity, isSaturday }) {
   const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
   const wouldExceed = boxInCart > remaining;
   const isFull = remaining <= 0;
+  const activeSlots = isSaturday ? TIME_SLOTS_SATURDAY : TIME_SLOTS_SUNDAY;
+  const creneauxLabel = isSaturday ? "Créneaux de 15 minutes · 18h30 – 19h30" : "Créneaux de 15 minutes · 10h00 – 11h00";
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -679,30 +809,30 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, sundayLabel
 
       <main className="px-5">
         <p className="text-sm text-[#3E2F22]/60 mb-1">
-          Retrait sur place, {sundayLabel ? sundayLabel.toLowerCase() : "dimanche"}.
+          Retrait sur place, {dayLabel ? dayLabel.toLowerCase() : (isSaturday ? "samedi" : "dimanche")}.
         </p>
-        <p className="text-xs text-[#5B6B4F] mb-1">Créneaux de 15 minutes · 10h00 – 11h00</p>
+        <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
 
         {loadingCapacity ? (
           <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
         ) : isFull ? (
           <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
-            Complet pour ce dimanche — toutes les box ont déjà été réservées. Revenez la semaine prochaine !
+            Complet pour ce {isSaturday ? "samedi" : "dimanche"} — toutes les box ont déjà été réservées !
           </div>
         ) : (
           <p className="text-xs text-[#5B6B4F] mb-5">
-            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce dimanche
+            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce {isSaturday ? "samedi" : "dimanche"}
           </p>
         )}
 
         {!isFull && wouldExceed && (
           <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
-            Il ne reste que {remaining} box disponible{remaining > 1 ? "s" : ""} pour ce dimanche — réduisez les quantités dans votre panier.
+            Il ne reste que {remaining} box disponible{remaining > 1 ? "s" : ""} — réduisez les quantités dans votre panier.
           </div>
         )}
 
         <div className="grid grid-cols-3 gap-2.5">
-          {TIME_SLOTS.map((slot) => {
+          {activeSlots.map((slot) => {
             const isSelected = selectedSlot === slot;
             const disabled = isFull || wouldExceed || loadingCapacity;
             return (
@@ -956,7 +1086,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
 // App racine
 // ---------------------------------------------------------------------------
 export default function App() {
-  const [step, setStep] = useState("loading"); // loading | menu | pin | admin | orders | cart | slot | confirm
+  const [step, setStep] = useState("loading");
   const [cart, setCart] = useState({});
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [lastOrder, setLastOrder] = useState(null);
@@ -967,22 +1097,34 @@ export default function App() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
+  const [blockedSundays, setBlockedSundays] = useState(["2026-07-20"]);
+  const [dayAvailability, setDayAvailability] = useState({ saturday: false, sunday: true });
 
-  const nextSunday = useMemo(() => getNextSunday(), []);
-  const sundayLabel = useMemo(() => formatSundayLabel(nextSunday.date), [nextSunday]);
+  const orderWindow = useMemo(() => getOrderWindowStatus(blockedSundays, dayAvailability), [blockedSundays, dayAvailability]);
+  const nextSunday = useMemo(() => orderWindow.nextSunday || getNextAvailableSunday(blockedSundays), [orderWindow, blockedSundays]);
+  const nextSaturday = useMemo(() => orderWindow.nextSaturday || getNextSaturday(), [orderWindow]);
+  const todayDay = new Date().getDay();
+  const satOnly = dayAvailability.saturday && !dayAvailability.sunday;
+  const isSaturday = satOnly || (dayAvailability.saturday && todayDay === 6);
+  const dayLabel = useMemo(() => isSaturday
+    ? formatDayLabel(nextSaturday.date)
+    : formatDayLabel(nextSunday.date), [isSaturday, nextSaturday, nextSunday]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
-  const orderWindow = useMemo(() => getOrderWindowStatus(), []);
 
   useEffect(() => {
     (async () => {
       try {
         const result = await window.storage.get(STORAGE_KEY, true);
-        if (result?.value) {
-          setWeeklyContent(JSON.parse(result.value));
-        }
-      } catch (e) {
-        // Pas encore de menu enregistré, on garde les contenus par défaut
-      }
+        if (result?.value) setWeeklyContent(JSON.parse(result.value));
+      } catch (e) {}
+      try {
+        const result = await window.storage.get(BLOCKED_SUNDAYS_KEY, true);
+        if (result?.value) setBlockedSundays(JSON.parse(result.value));
+      } catch (e) {}
+      try {
+        const result = await window.storage.get(DAY_AVAILABILITY_KEY, true);
+        if (result?.value) setDayAvailability(JSON.parse(result.value));
+      } catch (e) {}
       setStep("menu");
     })();
   }, []);
@@ -1012,9 +1154,23 @@ export default function App() {
     }
   };
 
+  const handleSaveBlocked = async (newBlocked) => {
+    setBlockedSundays(newBlocked);
+    try {
+      await window.storage.set(BLOCKED_SUNDAYS_KEY, JSON.stringify(newBlocked), true);
+    } catch (e) {}
+  };
+
+  const handleSaveDayAvailability = async (newAvail) => {
+    setDayAvailability(newAvail);
+    try {
+      await window.storage.set(DAY_AVAILABILITY_KEY, JSON.stringify(newAvail), true);
+    } catch (e) {}
+  };
+
   const handleConfirmOrder = async () => {
     // Sécurité : revérifie que la fenêtre de commande est toujours ouverte.
-    if (!getOrderWindowStatus().isOpen) {
+    if (!getOrderWindowStatus(blockedSundays).isOpen) {
       setStep("menu");
       return;
     }
@@ -1178,6 +1334,7 @@ export default function App() {
           onGoCart={() => setStep("cart")}
           onOpenAdmin={() => setStep("pin")}
           orderWindow={orderWindow}
+          dayAvailability={dayAvailability}
         />
       )}
 
@@ -1191,6 +1348,10 @@ export default function App() {
           onBack={() => setStep("menu")}
           onSave={handleSaveWeeklyContent}
           onOpenOrders={handleOpenOrders}
+          blockedSundays={blockedSundays}
+          onSaveBlocked={handleSaveBlocked}
+          dayAvailability={dayAvailability}
+          onSaveDayAvailability={handleSaveDayAvailability}
         />
       )}
 
@@ -1227,10 +1388,11 @@ export default function App() {
           selectedSlot={selectedSlot}
           onSelectSlot={setSelectedSlot}
           onConfirm={handleConfirmOrder}
-          sundayLabel={sundayLabel}
+          dayLabel={dayLabel}
           boxAlreadyBooked={boxAlreadyBooked}
           boxInCart={boxInCart}
           loadingCapacity={loadingCapacity}
+          isSaturday={isSaturday}
         />
       )}
 
