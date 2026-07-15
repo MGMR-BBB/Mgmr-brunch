@@ -148,16 +148,24 @@ function getNextAvailableSunday(blockedSundays = []) {
   return { iso, date: fallback };
 }
 
-// Calcule le prochain samedi
-function getNextSaturday() {
+// Calcule le prochain samedi disponible (non bloqué)
+function getNextSaturday(blockedDates = []) {
   const today = new Date();
   const day = today.getDay();
-  const daysUntilSaturday = day === 6 ? 7 : (6 - day + 7) % 7;
-  const d = new Date(today);
+  const daysUntilSaturday = day === 6 ? 7 : (6 - day + 7) % 7 || 7;
+  let d = new Date(today);
   d.setDate(today.getDate() + daysUntilSaturday);
   d.setHours(12, 0, 0, 0);
-  const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  return { iso, date: d };
+  for (let i = 0; i < 8; i++) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    if (!blockedDates.includes(iso)) return { iso, date: new Date(d) };
+    d.setDate(d.getDate() + 7);
+  }
+  const fallback = new Date(today);
+  fallback.setDate(today.getDate() + daysUntilSaturday);
+  fallback.setHours(12, 0, 0, 0);
+  const iso = `${fallback.getFullYear()}-${String(fallback.getMonth()+1).padStart(2,"0")}-${String(fallback.getDate()).padStart(2,"0")}`;
+  return { iso, date: fallback };
 }
 
 function formatDayLabel(date) {
@@ -173,7 +181,7 @@ function getOrderWindowStatus(blockedSundays = [], dayAvailability = { saturday:
   const totalMinutes = now.getHours() * 60 + now.getMinutes();
 
   const nextSunday = getNextAvailableSunday(blockedSundays);
-  const nextSaturday = getNextSaturday();
+  const nextSaturday = getNextSaturday(blockedSundays);
 
   let isOpen;
   if (day === 0) {
@@ -696,13 +704,13 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSunda
           </div>
         </div>
 
-        {/* Section dimanches sans box */}
+        {/* Section jours sans box */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
-            📅 Dimanches sans box
+            📅 Jours sans box
           </h3>
           <p className="text-xs text-[#3E2F22]/50 mb-3">
-            Ajoute les dates (AAAA-MM-JJ) des dimanches où il n'y a pas de box. Les commandes seront automatiquement redirigées vers le dimanche suivant disponible.
+            Ajoute les dates des jours sans box (samedi ou dimanche). Les commandes seront automatiquement redirigées vers la date suivante disponible.
           </p>
           <div className="flex gap-2 mb-3">
             <input
@@ -1203,7 +1211,7 @@ export default function App() {
 
   const orderWindow = useMemo(() => getOrderWindowStatus(blockedSundays, dayAvailability), [blockedSundays, dayAvailability]);
   const nextSunday = useMemo(() => orderWindow.nextSunday || getNextAvailableSunday(blockedSundays), [orderWindow, blockedSundays]);
-  const nextSaturday = useMemo(() => orderWindow.nextSaturday || getNextSaturday(), [orderWindow]);
+  const nextSaturday = useMemo(() => orderWindow.nextSaturday || getNextSaturday(blockedSundays), [orderWindow, blockedSundays]);
   const isSaturday = selectedDay === "saturday";
   const dayLabel = useMemo(() => {
     if (selectedDay === "saturday" && nextSaturday) return formatDayLabel(nextSaturday.date);
