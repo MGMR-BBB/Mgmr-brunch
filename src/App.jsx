@@ -212,23 +212,115 @@ function SectionEyebrow({ children }) {
 }
 
 // ---------------------------------------------------------------------------
+// Écran Choix du jour : samedi apéro ou dimanche brunch
+// ---------------------------------------------------------------------------
+function DayPickerScreen({ onBack, onSelectDay, dayAvailability, orderWindow, onOpenAdmin }) {
+  const nextSaturday = orderWindow.nextSaturday;
+  const nextSunday = orderWindow.nextSunday;
+
+  return (
+    <div className="min-h-screen bg-[#FBF3E7] pb-28">
+      <header className="px-6 pt-10 pb-8 text-center relative overflow-hidden">
+        <div className="absolute -top-10 -left-10 w-40 h-40 opacity-20 rotate-12" aria-hidden>
+          <Leaf className="w-full h-full text-[#5B6B4F]" strokeWidth={1} />
+        </div>
+        <button
+          onClick={onOpenAdmin}
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-[#3E2F22]/50 active:scale-95"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+        <StampRing size={140}>
+          <Heart className="w-5 h-5 text-[#E8A9A0] mb-1" fill="#E8A9A0" strokeWidth={0} />
+          <h1 className="text-3xl text-[#3E2F22] leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+            MGMR
+          </h1>
+          <p className="text-xl text-[#C97B63] -mt-1" style={{ fontFamily: "'Caveat', cursive" }}>
+            Box Brunch
+          </p>
+        </StampRing>
+        <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
+        <p className="mt-3 text-sm text-[#3E2F22]/70 max-w-xs mx-auto">
+          Choisissez votre jour de retrait
+        </p>
+      </header>
+
+      <main className="px-5 flex flex-col gap-4">
+        {dayAvailability.saturday && nextSaturday && (
+          <button
+            onClick={() => onSelectDay("saturday")}
+            className="bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
+                🧀
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Samedi soir
+                </p>
+                <p className="text-sm text-[#C97B63] font-medium">
+                  {formatDayLabel(nextSaturday.date)}
+                </p>
+                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                  Box Apéro · BigBox Apéro · 18h30–19h30
+                </p>
+              </div>
+              <span className="text-[#C97B63] text-lg">→</span>
+            </div>
+          </button>
+        )}
+
+        {dayAvailability.sunday && nextSunday && (
+          <button
+            onClick={() => onSelectDay("sunday")}
+            className="bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
+                🥐
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Dimanche matin
+                </p>
+                <p className="text-sm text-[#C97B63] font-medium">
+                  {formatDayLabel(nextSunday.date)}
+                </p>
+                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                  Toutes les box · 10h00–11h00
+                </p>
+              </div>
+              <span className="text-[#C97B63] text-lg">→</span>
+            </div>
+          </button>
+        )}
+
+        {!dayAvailability.saturday && !dayAvailability.sunday && (
+          <div className="bg-[#C97B63]/10 rounded-xl px-4 py-4 text-sm text-[#C97B63] text-center">
+            <span className="font-semibold block mb-1">Aucun jour disponible cette semaine</span>
+            Revenez bientôt !
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Écran Menu (vitrine client)
 // ---------------------------------------------------------------------------
-function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow, dayAvailability }) {
+function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow, dayAvailability, selectedDay, onBack }) {
   const totalCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b.qty, 0), [cart]);
   const isOpen = orderWindow.isOpen;
-
-  const todayDay = new Date().getDay();
-  const satOnly = dayAvailability.saturday && !dayAvailability.sunday;
-  const isSaturdayMode = satOnly || (dayAvailability.saturday && todayDay === 6);
+  const isSaturdayMode = selectedDay === "saturday";
 
   const visibleFormulas = isSaturdayMode
     ? FORMULAS.filter((f) => SATURDAY_FORMULA_IDS.includes(f.id))
     : FORMULAS;
 
-  const targetDayLabel = isSaturdayMode
-    ? (orderWindow.nextSaturday ? formatDayLabel(orderWindow.nextSaturday.date) : "samedi")
-    : (orderWindow.nextSunday ? formatDayLabel(orderWindow.nextSunday.date) : "dimanche");
+  const targetDay = isSaturdayMode ? orderWindow.nextSaturday : orderWindow.nextSunday;
+  const targetDayLabel = targetDay ? formatDayLabel(targetDay.date) : (isSaturdayMode ? "samedi" : "dimanche");
 
   const nextOpeningLabel = useMemo(() => {
     if (isOpen) return null;
@@ -1089,6 +1181,7 @@ export default function App() {
   const [step, setStep] = useState("loading");
   const [cart, setCart] = useState({});
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(null); // "saturday" | "sunday"
   const [lastOrder, setLastOrder] = useState(null);
   const [weeklyContent, setWeeklyContent] = useState({});
   const [phone, setPhone] = useState("");
@@ -1103,12 +1196,12 @@ export default function App() {
   const orderWindow = useMemo(() => getOrderWindowStatus(blockedSundays, dayAvailability), [blockedSundays, dayAvailability]);
   const nextSunday = useMemo(() => orderWindow.nextSunday || getNextAvailableSunday(blockedSundays), [orderWindow, blockedSundays]);
   const nextSaturday = useMemo(() => orderWindow.nextSaturday || getNextSaturday(), [orderWindow]);
-  const todayDay = new Date().getDay();
-  const satOnly = dayAvailability.saturday && !dayAvailability.sunday;
-  const isSaturday = satOnly || (dayAvailability.saturday && todayDay === 6);
-  const dayLabel = useMemo(() => isSaturday
-    ? formatDayLabel(nextSaturday.date)
-    : formatDayLabel(nextSunday.date), [isSaturday, nextSaturday, nextSunday]);
+  const isSaturday = selectedDay === "saturday";
+  const dayLabel = useMemo(() => {
+    if (selectedDay === "saturday" && nextSaturday) return formatDayLabel(nextSaturday.date);
+    if (selectedDay === "sunday" && nextSunday) return formatDayLabel(nextSunday.date);
+    return "";
+  }, [selectedDay, nextSaturday, nextSunday]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
 
   useEffect(() => {
@@ -1125,7 +1218,7 @@ export default function App() {
         const result = await window.storage.get(DAY_AVAILABILITY_KEY, true);
         if (result?.value) setDayAvailability(JSON.parse(result.value));
       } catch (e) {}
-      setStep("menu");
+      setStep("daypicker");
     })();
   }, []);
 
@@ -1170,8 +1263,8 @@ export default function App() {
 
   const handleConfirmOrder = async () => {
     // Sécurité : revérifie que la fenêtre de commande est toujours ouverte.
-    if (!getOrderWindowStatus(blockedSundays).isOpen) {
-      setStep("menu");
+    if (!getOrderWindowStatus(blockedSundays, dayAvailability).isOpen) {
+      setStep("daypicker");
       return;
     }
 
@@ -1229,10 +1322,11 @@ export default function App() {
   const handleNewOrder = () => {
     setCart({});
     setSelectedSlot(null);
+    setSelectedDay(null);
     setPhone("");
     setFirstName("");
     setLastOrder(null);
-    setStep("menu");
+    setStep("daypicker");
   };
 
   const loadOrders = async () => {
@@ -1325,6 +1419,16 @@ export default function App() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Caveat:wght@600;700&family=Inter:wght@400;500;600&display=swap');
       `}</style>
 
+      {step === "daypicker" && (
+        <DayPickerScreen
+          onBack={() => {}}
+          onSelectDay={(day) => { setSelectedDay(day); setCart({}); setStep("menu"); }}
+          dayAvailability={dayAvailability}
+          orderWindow={orderWindow}
+          onOpenAdmin={() => setStep("pin")}
+        />
+      )}
+
       {step === "menu" && (
         <MenuScreen
           cart={cart}
@@ -1333,19 +1437,21 @@ export default function App() {
           onRemove={handleRemove}
           onGoCart={() => setStep("cart")}
           onOpenAdmin={() => setStep("pin")}
+          onBack={() => setStep("daypicker")}
           orderWindow={orderWindow}
           dayAvailability={dayAvailability}
+          selectedDay={selectedDay}
         />
       )}
 
       {step === "pin" && (
-        <PinScreen onBack={() => setStep("menu")} onSuccess={() => setStep("admin")} />
+        <PinScreen onBack={() => setStep("daypicker")} onSuccess={() => setStep("admin")} />
       )}
 
       {step === "admin" && (
         <AdminScreen
           weeklyContent={weeklyContent}
-          onBack={() => setStep("menu")}
+          onBack={() => setStep("daypicker")}
           onSave={handleSaveWeeklyContent}
           onOpenOrders={handleOpenOrders}
           blockedSundays={blockedSundays}
@@ -1375,10 +1481,7 @@ export default function App() {
           onBack={() => setStep("menu")}
           onAdd={handleAdd}
           onRemove={handleRemove}
-          onNext={() => {
-            setStep("slot");
-            loadSundayCapacity();
-          }}
+          onNext={() => { setStep("slot"); loadSundayCapacity(); }}
         />
       )}
 
