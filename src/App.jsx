@@ -1009,7 +1009,7 @@ function ConfirmScreen({ order, onNewOrder }) {
         <div className="flex items-center justify-between pb-3 border-b border-dashed border-[#3E2F22]/15">
           <span className="text-xs uppercase tracking-wide text-[#5B6B4F]">Retrait à emporter</span>
           <span className="text-base font-semibold text-[#3E2F22] text-right" style={{ fontFamily: "'Fraunces', serif" }}>
-            {order.sundayLabel ? `${order.sundayLabel} · ` : ""}{order.slot}
+            {order.dayLabel ? `${order.dayLabel} · ` : ""}{order.slot}
           </span>
         </div>
 
@@ -1300,8 +1300,9 @@ export default function App() {
       lines,
       total,
       slot: selectedSlot,
-      sundayIso: nextSunday.iso,
-      sundayLabel,
+      dayIso: isSaturday ? nextSaturday.iso : nextSunday.iso,
+      dayLabel,
+      isSaturday,
       firstName: firstName.trim(),
       phone: phone.trim(),
       paid: false,
@@ -1390,7 +1391,7 @@ export default function App() {
       );
       const total = fetched
         .filter(Boolean)
-        .filter((o) => o.sundayIso === nextSunday.iso)
+        .filter((o) => o.dayIso === (isSaturday ? nextSaturday.iso : nextSunday.iso))
         .reduce((sum, o) => sum + Object.values(o.cart || {}).reduce((s, v) => s + v.qty, 0), 0);
       setBoxAlreadyBooked(total);
     } catch (e) {
