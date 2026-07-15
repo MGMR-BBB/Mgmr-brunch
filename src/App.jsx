@@ -127,11 +127,15 @@ const WEEKLY_BOX_LIMIT = 8;
 function getNextAvailableSunday(blockedSundays = []) {
   const today = new Date();
   const day = today.getDay();
-  const daysUntilSunday = (7 - day) % 7;
+  // Si on est dimanche (0), on cherche le dimanche suivant (dans 7 jours)
+  // pour les autres jours, on cherche le prochain dimanche à venir
+  const daysUntilSunday = day === 0 ? 7 : (7 - day);
   let d = new Date(today);
   d.setDate(today.getDate() + daysUntilSunday);
+  d.setHours(12, 0, 0, 0); // Midi pour éviter les décalages UTC
   for (let i = 0; i < 8; i++) {
-    const iso = d.toISOString().slice(0, 10);
+    // Format local YYYY-MM-DD sans passer par UTC
+    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     if (!blockedSundays.includes(iso)) {
       return { iso, date: new Date(d) };
     }
@@ -139,17 +143,21 @@ function getNextAvailableSunday(blockedSundays = []) {
   }
   const fallback = new Date(today);
   fallback.setDate(today.getDate() + daysUntilSunday);
-  return { iso: fallback.toISOString().slice(0, 10), date: fallback };
+  fallback.setHours(12, 0, 0, 0);
+  const iso = `${fallback.getFullYear()}-${String(fallback.getMonth()+1).padStart(2,"0")}-${String(fallback.getDate()).padStart(2,"0")}`;
+  return { iso, date: fallback };
 }
 
 // Calcule le prochain samedi
 function getNextSaturday() {
   const today = new Date();
-  const day = today.getDay(); // 6 = samedi
-  const daysUntilSaturday = (6 - day + 7) % 7;
+  const day = today.getDay();
+  const daysUntilSaturday = day === 6 ? 7 : (6 - day + 7) % 7;
   const d = new Date(today);
   d.setDate(today.getDate() + daysUntilSaturday);
-  return { iso: d.toISOString().slice(0, 10), date: d };
+  d.setHours(12, 0, 0, 0);
+  const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  return { iso, date: d };
 }
 
 function formatDayLabel(date) {
