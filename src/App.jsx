@@ -178,26 +178,16 @@ function formatDayLabel(date) {
 function getOrderWindowStatus(blockedSundays = [], dayAvailability = { saturday: false, sunday: true }) {
   const now = new Date();
   const day = now.getDay();
-  const totalMinutes = now.getHours() * 60 + now.getMinutes();
 
   const nextSunday = getNextAvailableSunday(blockedSundays);
   const nextSaturday = getNextSaturday(blockedSundays);
 
-  let isOpen;
-  if (day === 0) {
-    const todayIso = now.toISOString().slice(0, 10);
-    isOpen = !blockedSundays.includes(todayIso) && dayAvailability.sunday && totalMinutes >= 12 * 60;
-  } else if (day >= 1 && day <= 3) {
-    isOpen = dayAvailability.sunday || dayAvailability.saturday;
-  } else if (day === 4) {
-    isOpen = (dayAvailability.sunday || dayAvailability.saturday) && totalMinutes < 18 * 60;
-  } else {
-    isOpen = false;
-  }
+  // Les commandes sont ouvertes 7j/7 dès qu'au moins un jour est activé
+  const isOpen = dayAvailability.sunday || dayAvailability.saturday;
 
-  const daysUntilSunday = (7 - day) % 7;
+  const daysUntilSunday = day === 0 ? 7 : (7 - day);
   const nextOpening = new Date(now);
-  nextOpening.setDate(now.getDate() + (daysUntilSunday === 0 && !isOpen ? 7 : daysUntilSunday));
+  nextOpening.setDate(now.getDate() + daysUntilSunday);
   nextOpening.setHours(12, 0, 0, 0);
 
   return { isOpen, nextOpening, nextSunday, nextSaturday };
