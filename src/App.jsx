@@ -242,7 +242,7 @@ function DayPickerScreen({ onBack, onSelectDay, dayAvailability, orderWindow, on
             MGMR
           </h1>
           <p className="text-xl text-[#C97B63] -mt-1" style={{ fontFamily: "'Caveat', cursive" }}>
-            Box Brunch
+            Brunch & Événement
           </p>
         </StampRing>
         <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
@@ -392,7 +392,7 @@ function DevisScreen({ onBack }) {
           On vous recontacte très vite 🎉
         </p>
         <p className="text-sm text-[#3E2F22]/60 text-center mt-4 max-w-xs">
-          Merci {form.prenom} ! Votre demande de devis a bien été transmise à MGMR Box Brunch.
+          Merci {form.prenom} ! Votre demande de devis a bien été transmise à MGMR Brunch & Événement.
         </p>
         <button onClick={onBack} className="mt-10 text-sm text-[#5B6B4F] underline underline-offset-2">
           Retour à l'accueil
@@ -498,7 +498,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
             MGMR
           </h1>
           <p className="text-xl text-[#C97B63] -mt-1" style={{ fontFamily: "'Caveat', cursive" }}>
-            Box Brunch
+            Brunch & Événement
           </p>
         </StampRing>
         <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
@@ -1203,7 +1203,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
   const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
 
   const handleCopy = (order) => {
-    const text = `MGMR Box Brunch — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\nRetrait : ${order.slot}\nTél : ${order.phone}`;
+    const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\nRetrait : ${order.slot}\nTél : ${order.phone}`;
     navigator.clipboard?.writeText(text);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 1500);
