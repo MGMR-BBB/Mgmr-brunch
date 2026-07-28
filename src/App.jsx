@@ -308,7 +308,151 @@ function DayPickerScreen({ onBack, onSelectDay, dayAvailability, orderWindow, on
             Revenez bientôt !
           </div>
         )}
+
+        <div className="mt-2 border-t border-dashed border-[#3E2F22]/10 pt-4">
+          <button
+            onClick={() => onSelectDay("devis")}
+            className="w-full bg-[#5B6B4F]/10 rounded-2xl p-5 text-left active:scale-[0.98] transition border border-[#5B6B4F]/20"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-[#5B6B4F]/10 flex items-center justify-center text-3xl shrink-0">
+                🎉
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Événement privatif
+                </p>
+                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                  Demandez votre devis personnalisé
+                </p>
+              </div>
+              <span className="text-[#5B6B4F] text-lg">→</span>
+            </div>
+          </button>
+        </div>
       </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Écran Devis événement
+// ---------------------------------------------------------------------------
+function DevisScreen({ onBack }) {
+  const [form, setForm] = useState({ nom: "", prenom: "", telephone: "" });
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(false);
+
+  const isValid = form.nom.trim().length >= 2 && form.prenom.trim().length >= 2 &&
+    form.telephone.trim().replace(/\s/g, "").length >= 10;
+
+  const handleSubmit = async () => {
+    setSending(true);
+    setError(false);
+    try {
+      const id = Math.random().toString(36).slice(2, 8).toUpperCase();
+      await window.storage.set(`devis:${id}`, JSON.stringify({
+        ...form,
+        id,
+        createdAt: new Date().toISOString(),
+      }), true);
+      // Notification push
+      try {
+        await fetch("https://ntfy.sh/", {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: "mgmr-brunch82-cmd9k2",
+            title: "Demande de devis événement",
+            message: `${form.prenom} ${form.nom} - ${form.telephone}`,
+            priority: 4,
+            tags: ["tada"],
+          }),
+        });
+      } catch (e) {}
+      setSent(true);
+    } catch (e) {
+      setError(true);
+    }
+    setSending(false);
+  };
+
+  if (sent) {
+    return (
+      <div className="min-h-screen bg-[#FBF3E7] flex flex-col items-center px-6 pt-20 pb-10">
+        <StampRing size={110}>
+          <Check className="w-7 h-7 text-[#5B6B4F]" strokeWidth={2.5} />
+        </StampRing>
+        <h2 className="text-2xl text-[#3E2F22] mt-5 text-center" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+          Demande envoyée !
+        </h2>
+        <p className="text-lg text-[#C97B63] mt-1" style={{ fontFamily: "'Caveat', cursive" }}>
+          On vous recontacte très vite 🎉
+        </p>
+        <p className="text-sm text-[#3E2F22]/60 text-center mt-4 max-w-xs">
+          Merci {form.prenom} ! Votre demande de devis a bien été transmise à MGMR Box Brunch.
+        </p>
+        <button onClick={onBack} className="mt-10 text-sm text-[#5B6B4F] underline underline-offset-2">
+          Retour à l'accueil
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#FBF3E7] pb-28">
+      <header className="px-5 pt-6 pb-4 flex items-center gap-3">
+        <button onClick={onBack} className="w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-sm">
+          <ArrowLeft className="w-4 h-4 text-[#3E2F22]" />
+        </button>
+        <div>
+          <h2 className="text-lg text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+            Demande de devis
+          </h2>
+          <p className="text-xs text-[#3E2F22]/50">Événement privatif · sur mesure</p>
+        </div>
+      </header>
+
+      <main className="px-5 flex flex-col gap-4">
+        <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-3 text-xs text-[#5B6B4F]">
+          Remplissez ce formulaire et nous vous recontacterons pour préparer ensemble votre événement.
+        </div>
+
+        {["prenom", "nom", "telephone"].map((field) => (
+          <div key={field} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+            <label className="text-xs uppercase tracking-wide text-[#5B6B4F] block mb-2">
+              {field === "prenom" ? "Prénom" : field === "nom" ? "Nom" : "Numéro de téléphone"}
+            </label>
+            <input
+              type={field === "telephone" ? "tel" : "text"}
+              inputMode={field === "telephone" ? "tel" : "text"}
+              value={form[field]}
+              onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
+              placeholder={field === "prenom" ? "Camille" : field === "nom" ? "Dupont" : "06 12 34 56 78"}
+              className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+            />
+          </div>
+        ))}
+
+        {error && (
+          <p className="text-xs text-red-500 text-center">Une erreur s'est produite. Réessayez.</p>
+        )}
+      </main>
+
+      <div className="fixed bottom-5 left-0 right-0 px-5">
+        <button
+          onClick={handleSubmit}
+          disabled={!isValid || sending}
+          className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#5B6B4F] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40"
+        >
+          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          <span className="text-sm font-semibold">
+            {sending ? "Envoi en cours…" : "Envoyer ma demande"}
+          </span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -1429,11 +1573,18 @@ export default function App() {
       {step === "daypicker" && (
         <DayPickerScreen
           onBack={() => {}}
-          onSelectDay={(day) => { setSelectedDay(day); setCart({}); setStep("menu"); }}
+          onSelectDay={(day) => {
+            if (day === "devis") { setStep("devis"); return; }
+            setSelectedDay(day); setCart({}); setStep("menu");
+          }}
           dayAvailability={dayAvailability}
           orderWindow={orderWindow}
           onOpenAdmin={() => setStep("pin")}
         />
+      )}
+
+      {step === "devis" && (
+        <DevisScreen onBack={() => setStep("daypicker")} />
       )}
 
       {step === "menu" && (
