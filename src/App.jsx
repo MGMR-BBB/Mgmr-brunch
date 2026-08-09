@@ -109,88 +109,82 @@ const FORMULAS = [
 ];
 
 const STORAGE_KEY = "weekly-menu-content";
-const BLOCKED_SUNDAYS_KEY = "blocked-sundays";
-const DAY_AVAILABILITY_KEY = "day-availability"; // { saturday: true/false, sunday: true/false }
-
-// Créneaux dimanche : 10h00–11h00 toutes les 15 min
-const TIME_SLOTS_SUNDAY = ["10h00", "10h15", "10h30", "10h45", "11h00"];
-
-// Créneaux samedi : 18h30–19h30 toutes les 15 min
-const TIME_SLOTS_SATURDAY = ["18h30", "18h45", "19h00", "19h15", "19h30"];
-
-// Box disponibles le samedi (apéro uniquement)
-const SATURDAY_FORMULA_IDS = ["apero", "bigbox"];
+const BLOCKED_DATES_KEY = "blocked-dates"; // anciennement blocked-sundays
+const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... }
 
 const WEEKLY_BOX_LIMIT = 8;
 
-// Calcule le prochain dimanche disponible (non bloqué)
-function getNextAvailableSunday(blockedSundays = []) {
-  const today = new Date();
-  const day = today.getDay();
-  // Si on est dimanche (0), on cherche le dimanche suivant (dans 7 jours)
-  // pour les autres jours, on cherche le prochain dimanche à venir
-  const daysUntilSunday = day === 0 ? 7 : (7 - day);
-  let d = new Date(today);
-  d.setDate(today.getDate() + daysUntilSunday);
-  d.setHours(12, 0, 0, 0); // Midi pour éviter les décalages UTC
-  for (let i = 0; i < 8; i++) {
-    // Format local YYYY-MM-DD sans passer par UTC
-    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    if (!blockedSundays.includes(iso)) {
-      return { iso, date: new Date(d) };
-    }
-    d.setDate(d.getDate() + 7);
-  }
-  const fallback = new Date(today);
-  fallback.setDate(today.getDate() + daysUntilSunday);
-  fallback.setHours(12, 0, 0, 0);
-  const iso = `${fallback.getFullYear()}-${String(fallback.getMonth()+1).padStart(2,"0")}-${String(fallback.getDate()).padStart(2,"0")}`;
-  return { iso, date: fallback };
+// Jours de la semaine (ordre JS : 0=dim, 1=lun, ..., 6=sam)
+const WEEK_DAYS = [
+  { key: "lundi",    jsDay: 1, label: "Lundi",    emoji: "📦" },
+  { key: "mardi",   jsDay: 2, label: "Mardi",    emoji: "📦" },
+  { key: "mercredi",jsDay: 3, label: "Mercredi", emoji: "📦" },
+  { key: "jeudi",   jsDay: 4, label: "Jeudi",    emoji: "📦" },
+  { key: "vendredi",jsDay: 5, label: "Vendredi", emoji: "📦" },
+  { key: "samedi",  jsDay: 6, label: "Samedi",   emoji: "🧀" },
+  { key: "dimanche",jsDay: 0, label: "Dimanche", emoji: "🥐" },
+];
+
+// Schedule par défaut (samedi + dimanche comme avant)
+const DEFAULT_SCHEDULE = {
+  lundi:    { active: false, slots: "10h00, 10h30, 11h00" },
+  mardi:    { active: false, slots: "10h00, 10h30, 11h00" },
+  mercredi: { active: false, slots: "10h00, 10h30, 11h00" },
+  jeudi:    { active: false, slots: "10h00, 10h30, 11h00" },
+  vendredi: { active: false, slots: "10h00, 10h30, 11h00" },
+  samedi:   { active: true,  slots: "18h30, 18h45, 19h00, 19h15, 19h30" },
+  dimanche: { active: true,  slots: "10h00, 10h15, 10h30, 10h45, 11h00" },
+};
+
+// Parse une chaîne de créneaux "10h00, 10h30" en tableau ["10h00", "10h30"]
+function parseSlots(slotsStr) {
+  return slotsStr.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-// Calcule le prochain samedi disponible (non bloqué)
-function getNextSaturday(blockedDates = []) {
+// Calcule la date (locale) d'un jour donné de la semaine en cours ou suivante.
+// jsDay : 0=dim, 1=lun, ..., 6=sam
+// Retourne toujours une date dans le futur (au moins aujourd'hui ou après).
+function getNextDateForDay(jsDay, blockedDates = []) {
   const today = new Date();
-  const day = today.getDay();
-  const daysUntilSaturday = day === 6 ? 7 : (6 - day + 7) % 7 || 7;
-  let d = new Date(today);
-  d.setDate(today.getDate() + daysUntilSaturday);
-  d.setHours(12, 0, 0, 0);
-  for (let i = 0; i < 8; i++) {
+  const todayDay = today.getDay();
+  let diff = jsDay - todayDay;
+  if (diff < 0) diff += 7;
+  if (diff === 0) diff = 7; // On ne propose jamais le jour même
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + diff + attempt * 7);
+    d.setHours(12, 0, 0, 0);
     const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    if (!blockedDates.includes(iso)) return { iso, date: new Date(d) };
-    d.setDate(d.getDate() + 7);
+    if (!blockedDates.includes(iso)) return { iso, date: d };
   }
   const fallback = new Date(today);
-  fallback.setDate(today.getDate() + daysUntilSaturday);
+  fallback.setDate(today.getDate() + diff);
   fallback.setHours(12, 0, 0, 0);
-  const iso = `${fallback.getFullYear()}-${String(fallback.getMonth()+1).padStart(2,"0")}-${String(fallback.getDate()).padStart(2,"0")}`;
-  return { iso, date: fallback };
+  return { iso: fallback.toISOString().slice(0, 10), date: fallback };
 }
+
 
 function formatDayLabel(date) {
   const formatted = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-// Fenêtre de commande : ouverte du dimanche 12h00 au jeudi 18h00.
-// dayAvailability = { saturday: bool, sunday: bool }
-function getOrderWindowStatus(blockedSundays = [], dayAvailability = { saturday: false, sunday: true }) {
-  const now = new Date();
-  const day = now.getDay();
+// Calcule les prochaines dates disponibles pour chaque jour actif du planning
+function getScheduleWithDates(schedule, blockedDates = []) {
+  return WEEK_DAYS
+    .filter((d) => schedule[d.key]?.active)
+    .map((d) => ({
+      ...d,
+      slots: parseSlots(schedule[d.key].slots || ""),
+      nextDate: getNextDateForDay(d.jsDay, blockedDates),
+    }))
+    .sort((a, b) => a.nextDate.date - b.nextDate.date);
+}
 
-  const nextSunday = getNextAvailableSunday(blockedSundays);
-  const nextSaturday = getNextSaturday(blockedSundays);
-
-  // Les commandes sont ouvertes 7j/7 dès qu'au moins un jour est activé
-  const isOpen = dayAvailability.sunday || dayAvailability.saturday;
-
-  const daysUntilSunday = day === 0 ? 7 : (7 - day);
-  const nextOpening = new Date(now);
-  nextOpening.setDate(now.getDate() + daysUntilSunday);
-  nextOpening.setHours(12, 0, 0, 0);
-
-  return { isOpen, nextOpening, nextSunday, nextSaturday };
+// Statut d'ouverture : ouvert dès qu'au moins un jour est activé dans le planning
+function getOrderWindowStatus(schedule = DEFAULT_SCHEDULE) {
+  const isOpen = WEEK_DAYS.some((d) => schedule[d.key]?.active);
+  return { isOpen };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,9 +214,11 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 // Écran Choix du jour : samedi apéro ou dimanche brunch
 // ---------------------------------------------------------------------------
-function DayPickerScreen({ onBack, onSelectDay, dayAvailability, orderWindow, onOpenAdmin }) {
-  const nextSaturday = orderWindow.nextSaturday;
-  const nextSunday = orderWindow.nextSunday;
+function DayPickerScreen({ onSelectDay, schedule, blockedDates, orderWindow, onOpenAdmin }) {
+  const activeDays = useMemo(
+    () => getScheduleWithDates(schedule, blockedDates),
+    [schedule, blockedDates]
+  );
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -252,62 +248,38 @@ function DayPickerScreen({ onBack, onSelectDay, dayAvailability, orderWindow, on
       </header>
 
       <main className="px-5 flex flex-col gap-4">
-        {dayAvailability.saturday && nextSaturday && (
-          <button
-            onClick={() => onSelectDay("saturday")}
-            className="bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
-                🧀
-              </div>
-              <div className="flex-1">
-                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  Samedi soir
-                </p>
-                <p className="text-sm text-[#C97B63] font-medium">
-                  {formatDayLabel(nextSaturday.date)}
-                </p>
-                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
-                  Box Apéro · BigBox Apéro · 18h30–19h30
-                </p>
-              </div>
-              <span className="text-[#C97B63] text-lg">→</span>
-            </div>
-          </button>
-        )}
-
-        {dayAvailability.sunday && nextSunday && (
-          <button
-            onClick={() => onSelectDay("sunday")}
-            className="bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
-                🥐
-              </div>
-              <div className="flex-1">
-                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  Dimanche matin
-                </p>
-                <p className="text-sm text-[#C97B63] font-medium">
-                  {formatDayLabel(nextSunday.date)}
-                </p>
-                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
-                  Toutes les box · 10h00–11h00
-                </p>
-              </div>
-              <span className="text-[#C97B63] text-lg">→</span>
-            </div>
-          </button>
-        )}
-
-        {!dayAvailability.saturday && !dayAvailability.sunday && (
+        {activeDays.length === 0 && (
           <div className="bg-[#C97B63]/10 rounded-xl px-4 py-4 text-sm text-[#C97B63] text-center">
             <span className="font-semibold block mb-1">Aucun jour disponible cette semaine</span>
             Revenez bientôt !
           </div>
         )}
+
+        {activeDays.map((day) => (
+          <button
+            key={day.key}
+            onClick={() => onSelectDay(day.key)}
+            className="bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
+                {day.emoji}
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                  {day.label}
+                </p>
+                <p className="text-sm text-[#C97B63] font-medium">
+                  {formatDayLabel(day.nextDate.date)}
+                </p>
+                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                  Toutes les box · {day.slots[0]}–{day.slots[day.slots.length - 1]}
+                </p>
+              </div>
+              <span className="text-[#C97B63] text-lg">→</span>
+            </div>
+          </button>
+        ))}
 
         <div className="mt-2 border-t border-dashed border-[#3E2F22]/10 pt-4">
           <button
@@ -460,24 +432,12 @@ function DevisScreen({ onBack }) {
 // ---------------------------------------------------------------------------
 // Écran Menu (vitrine client)
 // ---------------------------------------------------------------------------
-function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow, dayAvailability, selectedDay, onBack }) {
+function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmin, orderWindow, selectedDay, selectedDayData, onBack }) {
   const totalCount = useMemo(() => Object.values(cart).reduce((a, b) => a + b.qty, 0), [cart]);
   const isOpen = orderWindow.isOpen;
-  const isSaturdayMode = selectedDay === "saturday";
+  const targetDayLabel = selectedDayData ? formatDayLabel(selectedDayData.nextDate.date) : "";
 
-  const visibleFormulas = isSaturdayMode
-    ? FORMULAS.filter((f) => SATURDAY_FORMULA_IDS.includes(f.id))
-    : FORMULAS;
-
-  const targetDay = isSaturdayMode ? orderWindow.nextSaturday : orderWindow.nextSunday;
-  const targetDayLabel = targetDay ? formatDayLabel(targetDay.date) : (isSaturdayMode ? "samedi" : "dimanche");
-
-  const nextOpeningLabel = useMemo(() => {
-    if (isOpen) return null;
-    return orderWindow.nextOpening.toLocaleDateString("fr-FR", {
-      weekday: "long", day: "numeric", month: "long",
-    });
-  }, [orderWindow, isOpen]);
+  const nextOpeningLabel = null; // ouvert 7j/7 si un jour est actif
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -514,18 +474,16 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
             Réouverture {nextOpeningLabel} à 12h00
           </div>
         )}
-        {isOpen && (
+        {isOpen && selectedDayData && (
           <p className="text-center text-xs text-[#5B6B4F] mb-3">
             Retrait {targetDayLabel ? targetDayLabel.toLowerCase() : ""}
-            {isSaturdayMode ? " · 18h30–19h30" : " · 10h00–11h00"}
+            {selectedDayData.slots.length > 0 ? ` · ${selectedDayData.slots[0]}–${selectedDayData.slots[selectedDayData.slots.length-1]}` : ""}
           </p>
         )}
 
-        <SectionEyebrow>
-          {isSaturdayMode ? "Box Apéro du samedi" : "Les box de la semaine"}
-        </SectionEyebrow>
+        <SectionEyebrow>Les box de la semaine</SectionEyebrow>
         <div className="mt-5 flex flex-col gap-4">
-          {visibleFormulas.map((formula) => {
+          {FORMULAS.map((formula) => {
             const qty = cart[formula.id]?.qty || 0;
             const items = weeklyContent[formula.id]?.length ? weeklyContent[formula.id] : formula.defaultItems;
             return (
@@ -707,7 +665,7 @@ function PinScreen({ onBack, onSuccess }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : édition du contenu hebdomadaire (partagé)
 // ---------------------------------------------------------------------------
-function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSundays, onSaveBlocked, dayAvailability, onSaveDayAvailability }) {
+function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates, onSaveBlocked, schedule, onSaveSchedule }) {
   const [draft, setDraft] = useState(() => {
     const initial = {};
     FORMULAS.forEach((f) => {
@@ -722,13 +680,23 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSunda
 
   const handleAddBlocked = () => {
     if (!newBlockedDate) return;
-    const updated = [...new Set([...blockedSundays, newBlockedDate])].sort();
+    const updated = [...new Set([...blockedDates, newBlockedDate])].sort();
     onSaveBlocked(updated);
     setNewBlockedDate("");
   };
 
   const handleRemoveBlocked = (date) => {
-    onSaveBlocked(blockedSundays.filter((d) => d !== date));
+    onSaveBlocked(blockedDates.filter((d) => d !== date));
+  };
+
+  const handleToggleDay = (key) => {
+    const updated = { ...schedule, [key]: { ...schedule[key], active: !schedule[key]?.active } };
+    onSaveSchedule(updated);
+  };
+
+  const handleSlotsChange = (key, value) => {
+    const updated = { ...schedule, [key]: { ...schedule[key], slots: value } };
+    onSaveSchedule(updated);
   };
 
   const handleChange = (id, text) => {
@@ -805,36 +773,41 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSunda
           </div>
         ))}
 
-        {/* Disponibilité des jours */}
+
+        {/* Planning 7 jours */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
-            📆 Jours disponibles cette semaine
+            📆 Planning de la semaine
           </h3>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[#3E2F22] font-medium">Samedi soir 🧀</p>
-                <p className="text-xs text-[#3E2F22]/50">Box Apéro & BigBox · 18h30–19h30</p>
-              </div>
-              <button
-                onClick={() => onSaveDayAvailability({ ...dayAvailability, saturday: !dayAvailability.saturday })}
-                className={`w-12 h-6 rounded-full transition-colors relative ${dayAvailability.saturday ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${dayAvailability.saturday ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-[#3E2F22] font-medium">Dimanche matin 🥐</p>
-                <p className="text-xs text-[#3E2F22]/50">Toutes les box · 10h00–11h00</p>
-              </div>
-              <button
-                onClick={() => onSaveDayAvailability({ ...dayAvailability, sunday: !dayAvailability.sunday })}
-                className={`w-12 h-6 rounded-full transition-colors relative ${dayAvailability.sunday ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${dayAvailability.sunday ? "translate-x-6" : "translate-x-0.5"}`} />
-              </button>
-            </div>
+          <p className="text-xs text-[#3E2F22]/50 mb-4">
+            Active les jours de retrait et saisis les créneaux séparés par des virgules (ex: 10h00, 10h30, 11h00).
+          </p>
+          <div className="flex flex-col gap-4">
+            {WEEK_DAYS.map((day) => {
+              const cfg = schedule[day.key] || { active: false, slots: "" };
+              return (
+                <div key={day.key} className="border border-[#3E2F22]/8 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-[#3E2F22] font-medium">{day.label} {day.emoji}</p>
+                    <button
+                      onClick={() => handleToggleDay(day.key)}
+                      className={`w-12 h-6 rounded-full transition-colors relative ${cfg.active ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
+                    >
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.active ? "translate-x-6" : "translate-x-0.5"}`} />
+                    </button>
+                  </div>
+                  {cfg.active && (
+                    <input
+                      type="text"
+                      value={cfg.slots}
+                      onChange={(e) => handleSlotsChange(day.key, e.target.value)}
+                      placeholder="10h00, 10h30, 11h00"
+                      className="w-full text-xs text-[#3E2F22] bg-[#FBF3E7] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[#C97B63]/40"
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -861,11 +834,11 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedSunda
               Ajouter
             </button>
           </div>
-          {blockedSundays.length === 0 ? (
+          {blockedDates.length === 0 ? (
             <p className="text-xs text-[#3E2F22]/40">Aucun dimanche bloqué.</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {blockedSundays.map((date) => (
+              {blockedDates.map((date) => (
                 <div key={date} className="flex items-center justify-between bg-[#FBF3E7] rounded-xl px-3 py-2">
                   <span className="text-sm text-[#3E2F22]">
                     {new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
@@ -1031,12 +1004,14 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 // ---------------------------------------------------------------------------
 // Écran Créneau
 // ---------------------------------------------------------------------------
-function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, boxAlreadyBooked, boxInCart, loadingCapacity, isSaturday }) {
+function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, daySlots, boxAlreadyBooked, boxInCart, loadingCapacity }) {
   const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
   const wouldExceed = boxInCart > remaining;
   const isFull = remaining <= 0;
-  const activeSlots = isSaturday ? TIME_SLOTS_SATURDAY : TIME_SLOTS_SUNDAY;
-  const creneauxLabel = isSaturday ? "Créneaux de 15 minutes · 18h30 – 19h30" : "Créneaux de 15 minutes · 10h00 – 11h00";
+  const activeSlots = daySlots || [];
+  const creneauxLabel = activeSlots.length > 0
+    ? `Créneaux · ${activeSlots[0]}–${activeSlots[activeSlots.length-1]}`
+    : "Créneaux à définir";
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -1051,7 +1026,7 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, b
 
       <main className="px-5">
         <p className="text-sm text-[#3E2F22]/60 mb-1">
-          Retrait sur place, {dayLabel ? dayLabel.toLowerCase() : (isSaturday ? "samedi" : "dimanche")}.
+          Retrait sur place, {dayLabel ? dayLabel.toLowerCase() : "ce jour"}.
         </p>
         <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
 
@@ -1059,11 +1034,11 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, b
           <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
         ) : isFull ? (
           <div className="bg-[#C97B63]/10 rounded-xl px-3 py-2.5 text-xs text-[#C97B63] mb-5">
-            Complet pour ce {isSaturday ? "samedi" : "dimanche"} — toutes les box ont déjà été réservées !
+            Complet pour ce jour — toutes les box ont déjà été réservées !
           </div>
         ) : (
           <p className="text-xs text-[#5B6B4F] mb-5">
-            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce {isSaturday ? "samedi" : "dimanche"}
+            {remaining} box restantes sur {WEEKLY_BOX_LIMIT} pour ce jour
           </p>
         )}
 
@@ -1331,7 +1306,7 @@ export default function App() {
   const [step, setStep] = useState("loading");
   const [cart, setCart] = useState({});
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [selectedDay, setSelectedDay] = useState(null); // "saturday" | "sunday"
+  const [selectedDay, setSelectedDay] = useState(null); // clé du jour ex: "samedi", "dimanche", "lundi"...
   const [lastOrder, setLastOrder] = useState(null);
   const [weeklyContent, setWeeklyContent] = useState({});
   const [phone, setPhone] = useState("");
@@ -1340,18 +1315,14 @@ export default function App() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
-  const [blockedSundays, setBlockedSundays] = useState(["2026-07-20"]);
-  const [dayAvailability, setDayAvailability] = useState({ saturday: false, sunday: true });
+  const [blockedDates, setBlockedDates] = useState([]);
+  const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
 
-  const orderWindow = useMemo(() => getOrderWindowStatus(blockedSundays, dayAvailability), [blockedSundays, dayAvailability]);
-  const nextSunday = useMemo(() => orderWindow.nextSunday || getNextAvailableSunday(blockedSundays), [orderWindow, blockedSundays]);
-  const nextSaturday = useMemo(() => orderWindow.nextSaturday || getNextSaturday(blockedSundays), [orderWindow, blockedSundays]);
-  const isSaturday = selectedDay === "saturday";
-  const dayLabel = useMemo(() => {
-    if (selectedDay === "saturday" && nextSaturday) return formatDayLabel(nextSaturday.date);
-    if (selectedDay === "sunday" && nextSunday) return formatDayLabel(nextSunday.date);
-    return "";
-  }, [selectedDay, nextSaturday, nextSunday]);
+  const orderWindow = useMemo(() => getOrderWindowStatus(schedule), [schedule]);
+  const activeDays = useMemo(() => getScheduleWithDates(schedule, blockedDates), [schedule, blockedDates]);
+  const selectedDayData = useMemo(() => activeDays.find((d) => d.key === selectedDay) || null, [activeDays, selectedDay]);
+  const dayLabel = useMemo(() => selectedDayData ? formatDayLabel(selectedDayData.nextDate.date) : "", [selectedDayData]);
+  const daySlots = useMemo(() => selectedDayData?.slots || [], [selectedDayData]);
   const boxInCart = useMemo(() => Object.values(cart).reduce((sum, v) => sum + v.qty, 0), [cart]);
 
   useEffect(() => {
@@ -1361,12 +1332,12 @@ export default function App() {
         if (result?.value) setWeeklyContent(JSON.parse(result.value));
       } catch (e) {}
       try {
-        const result = await window.storage.get(BLOCKED_SUNDAYS_KEY, true);
-        if (result?.value) setBlockedSundays(JSON.parse(result.value));
+        const result = await window.storage.get(BLOCKED_DATES_KEY, true);
+        if (result?.value) setBlockedDates(JSON.parse(result.value));
       } catch (e) {}
       try {
-        const result = await window.storage.get(DAY_AVAILABILITY_KEY, true);
-        if (result?.value) setDayAvailability(JSON.parse(result.value));
+        const result = await window.storage.get(SCHEDULE_KEY, true);
+        if (result?.value) setSchedule(JSON.parse(result.value));
       } catch (e) {}
       setStep("daypicker");
     })();
@@ -1398,22 +1369,22 @@ export default function App() {
   };
 
   const handleSaveBlocked = async (newBlocked) => {
-    setBlockedSundays(newBlocked);
+    setBlockedDates(newBlocked);
     try {
-      await window.storage.set(BLOCKED_SUNDAYS_KEY, JSON.stringify(newBlocked), true);
+      await window.storage.set(BLOCKED_DATES_KEY, JSON.stringify(newBlocked), true);
     } catch (e) {}
   };
 
-  const handleSaveDayAvailability = async (newAvail) => {
-    setDayAvailability(newAvail);
+  const handleSaveSchedule = async (newSchedule) => {
+    setSchedule(newSchedule);
     try {
-      await window.storage.set(DAY_AVAILABILITY_KEY, JSON.stringify(newAvail), true);
+      await window.storage.set(SCHEDULE_KEY, JSON.stringify(newSchedule), true);
     } catch (e) {}
   };
 
   const handleConfirmOrder = async () => {
     // Sécurité : revérifie que la fenêtre de commande est toujours ouverte.
-    if (!getOrderWindowStatus(blockedSundays, dayAvailability).isOpen) {
+    if (!getOrderWindowStatus(schedule).isOpen) {
       setStep("daypicker");
       return;
     }
@@ -1434,9 +1405,9 @@ export default function App() {
       lines,
       total,
       slot: selectedSlot,
-      dayIso: isSaturday ? nextSaturday.iso : nextSunday.iso,
+      dayIso: selectedDayData?.nextDate.iso || "",
       dayLabel,
-      isSaturday,
+      dayKey: selectedDay,
       firstName: firstName.trim(),
       phone: phone.trim(),
       paid: false,
@@ -1523,9 +1494,10 @@ export default function App() {
           }
         })
       );
+      const targetIso = selectedDayData?.nextDate.iso || "";
       const total = fetched
         .filter(Boolean)
-        .filter((o) => o.dayIso === (isSaturday ? nextSaturday.iso : nextSunday.iso))
+        .filter((o) => o.dayIso === targetIso)
         .reduce((sum, o) => sum + Object.values(o.cart || {}).reduce((s, v) => s + v.qty, 0), 0);
       setBoxAlreadyBooked(total);
     } catch (e) {
@@ -1577,7 +1549,25 @@ export default function App() {
             if (day === "devis") { setStep("devis"); return; }
             setSelectedDay(day); setCart({}); setStep("menu");
           }}
-          dayAvailability={dayAvailability}
+          schedule={schedule}
+          blockedDates={blockedDates}
+          orderWindow={orderWindow}
+          onOpenAdmin={() => setStep("pin")}
+        />
+      )}
+
+      {step === "devis" && (
+        <DevisScreen onBack={() => setStep("daypicker")} />
+      )}
+
+      {step === "daypicker" && (
+        <DayPickerScreen
+          onSelectDay={(day) => {
+            if (day === "devis") { setStep("devis"); return; }
+            setSelectedDay(day); setCart({}); setStep("menu");
+          }}
+          schedule={schedule}
+          blockedDates={blockedDates}
           orderWindow={orderWindow}
           onOpenAdmin={() => setStep("pin")}
         />
@@ -1597,8 +1587,8 @@ export default function App() {
           onOpenAdmin={() => setStep("pin")}
           onBack={() => setStep("daypicker")}
           orderWindow={orderWindow}
-          dayAvailability={dayAvailability}
           selectedDay={selectedDay}
+          selectedDayData={selectedDayData}
         />
       )}
 
@@ -1612,10 +1602,10 @@ export default function App() {
           onBack={() => setStep("daypicker")}
           onSave={handleSaveWeeklyContent}
           onOpenOrders={handleOpenOrders}
-          blockedSundays={blockedSundays}
+          blockedDates={blockedDates}
           onSaveBlocked={handleSaveBlocked}
-          dayAvailability={dayAvailability}
-          onSaveDayAvailability={handleSaveDayAvailability}
+          schedule={schedule}
+          onSaveSchedule={handleSaveSchedule}
         />
       )}
 
@@ -1650,10 +1640,10 @@ export default function App() {
           onSelectSlot={setSelectedSlot}
           onConfirm={handleConfirmOrder}
           dayLabel={dayLabel}
+          daySlots={daySlots}
           boxAlreadyBooked={boxAlreadyBooked}
           boxInCart={boxInCart}
           loadingCapacity={loadingCapacity}
-          isSaturday={isSaturday}
         />
       )}
 
