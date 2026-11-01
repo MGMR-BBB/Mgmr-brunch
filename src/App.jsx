@@ -93,7 +93,7 @@ const FORMULAS = [
   {
     id: "apero",
     name: "Box Apéro",
-    price: 28,
+    price: 30,
     people: "2-3 personnes",
     emoji: "🥳",
     defaultItems: [
