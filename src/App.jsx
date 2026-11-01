@@ -18,6 +18,8 @@ import {
   Copy,
   Trash2,
   Lock,
+  Truck,
+  MapPin,
 } from "lucide-react";
 
 // Code PIN pour protéger l'accès à l'écran admin (menu de la semaine,
@@ -29,7 +31,7 @@ const ADMIN_PIN = "1208";
 const NTFY_TOPIC = "mgmr-brunch82-cmd9k2";
 
 // ---------------------------------------------------------------------------
-// Les 5 formules : structure et prix FIXES (ne changent pas).
+// Les 6 formules : structure et prix FIXES (ne changent pas).
 // Seul le contenu (liste d'ingrédients) change chaque semaine via l'admin.
 // ---------------------------------------------------------------------------
 const FORMULAS = [
@@ -59,7 +61,7 @@ const FORMULAS = [
   {
     id: "duo",
     name: "Box 2 personnes",
-    price: 28,
+    price: 30,
     people: "2 personnes",
     emoji: "🫶",
     defaultItems: [
@@ -68,6 +70,22 @@ const FORMULAS = [
       "Mini pancakes",
       "Cakes maison",
       "Dessert gourmand",
+      "Assortiment de charcuteries",
+      "Assortiment de fromages",
+    ],
+  },
+  {
+    id: "bigbrunch",
+    name: "BigBox Brunch",
+    price: 43,
+    people: "4 personnes",
+    emoji: "🥞",
+    defaultItems: [
+      "Bagels garnis",
+      "Sandwichs",
+      "Mini pancakes",
+      "Cakes maison",
+      "Desserts gourmands",
       "Assortiment de charcuteries",
       "Assortiment de fromages",
     ],
@@ -92,7 +110,7 @@ const FORMULAS = [
   {
     id: "bigbox",
     name: "BigBox Apéro",
-    price: 35,
+    price: 43,
     people: "4 personnes",
     emoji: "🔥",
     defaultItems: [
@@ -111,6 +129,7 @@ const FORMULAS = [
 const STORAGE_KEY = "weekly-menu-content";
 const BLOCKED_DATES_KEY = "blocked-dates"; // anciennement blocked-sundays
 const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... }
+const OPEN_DATES_KEY = "open-dates"; // { "2026-11-07": "18h30, 18h45", ... } week-ends ouverts
 
 const WEEKLY_BOX_LIMIT = 8;
 
@@ -125,20 +144,26 @@ const WEEK_DAYS = [
   { key: "dimanche",jsDay: 0, label: "Dimanche", emoji: "🥐" },
 ];
 
-// Schedule par défaut (samedi + dimanche comme avant)
+// Schedule par défaut. Les week-ends (samedi / dimanche) sont maintenant gérés
+// date par date dans "Week-ends ouverts" ; les créneaux ci-dessous servent de
+// créneaux proposés par défaut quand on ouvre un week-end.
 const DEFAULT_SCHEDULE = {
   lundi:    { active: false, slots: "10h00, 10h30, 11h00" },
   mardi:    { active: false, slots: "10h00, 10h30, 11h00" },
   mercredi: { active: false, slots: "10h00, 10h30, 11h00" },
   jeudi:    { active: false, slots: "10h00, 10h30, 11h00" },
   vendredi: { active: false, slots: "10h00, 10h30, 11h00" },
-  samedi:   { active: true,  slots: "18h30, 18h45, 19h00, 19h15, 19h30" },
-  dimanche: { active: true,  slots: "10h00, 10h15, 10h30, 10h45, 11h00" },
+  samedi:   { active: false, slots: "18h30, 18h45, 19h00, 19h15, 19h30" },
+  dimanche: { active: false, slots: "10h00, 10h15, 10h30, 10h45, 11h00" },
 };
 
 // Parse une chaîne de créneaux "10h00, 10h30" en tableau ["10h00", "10h30"]
 function parseSlots(slotsStr) {
-  return slotsStr.split(",").map((s) => s.trim()).filter(Boolean);
+  return (slotsStr || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function toIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Calcule la date (locale) d'un jour donné de la semaine en cours ou suivante.
@@ -154,7 +179,7 @@ function getNextDateForDay(jsDay, blockedDates = []) {
     const d = new Date(today);
     d.setDate(today.getDate() + diff + attempt * 7);
     d.setHours(12, 0, 0, 0);
-    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const iso = toIso(d);
     if (!blockedDates.includes(iso)) return { iso, date: d };
   }
   const fallback = new Date(today);
@@ -163,27 +188,71 @@ function getNextDateForDay(jsDay, blockedDates = []) {
   return { iso: fallback.toISOString().slice(0, 10), date: fallback };
 }
 
-
 function formatDayLabel(date) {
   const formatted = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-// Calcule les prochaines dates disponibles pour chaque jour actif du planning
-function getScheduleWithDates(schedule, blockedDates = []) {
-  return WEEK_DAYS
-    .filter((d) => schedule[d.key]?.active)
+// Liste les samedis et dimanches (à venir) d'un mois.
+// monthOffset : 0 = mois en cours, 1 = mois suivant
+function getWeekendDates(monthOffset = 0) {
+  const now = new Date();
+  const todayIso = toIso(now);
+  const year = now.getFullYear();
+  const month = now.getMonth() + monthOffset;
+  const first = new Date(year, month, 1, 12, 0, 0, 0);
+  const result = [];
+  const d = new Date(first);
+  while (d.getMonth() === first.getMonth()) {
+    const jsDay = d.getDay();
+    if (jsDay === 6 || jsDay === 0) {
+      const iso = toIso(d);
+      if (iso > todayIso) {
+        const base = WEEK_DAYS.find((w) => w.jsDay === jsDay);
+        result.push({ iso, date: new Date(d), jsDay, label: base.label, emoji: base.emoji });
+      }
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return { monthDate: first, dates: result };
+}
+
+// Calcule les prochains jours disponibles :
+//  - jours de semaine (lundi → vendredi) actifs dans le planning
+//  - week-ends ouverts date par date par l'admin
+function getScheduleWithDates(schedule, blockedDates = [], openDates = {}) {
+  const todayIso = toIso(new Date());
+
+  const weekdayEntries = WEEK_DAYS
+    .filter((d) => d.jsDay !== 0 && d.jsDay !== 6 && schedule[d.key]?.active)
     .map((d) => ({
       ...d,
       slots: parseSlots(schedule[d.key].slots || ""),
       nextDate: getNextDateForDay(d.jsDay, blockedDates),
-    }))
-    .sort((a, b) => a.nextDate.date - b.nextDate.date);
+    }));
+
+  const weekendEntries = Object.entries(openDates || {})
+    .filter(([iso]) => iso > todayIso)
+    .map(([iso, slotsStr]) => {
+      const date = new Date(iso + "T12:00:00");
+      const base = WEEK_DAYS.find((w) => w.jsDay === date.getDay());
+      return {
+        key: iso,
+        jsDay: date.getDay(),
+        label: base.label,
+        emoji: base.emoji,
+        slots: parseSlots(slotsStr),
+        nextDate: { iso, date },
+      };
+    })
+    .filter((e) => e.slots.length > 0);
+
+  return [...weekdayEntries, ...weekendEntries].sort((a, b) => a.nextDate.date - b.nextDate.date);
 }
 
-// Statut d'ouverture : ouvert dès qu'au moins un jour est activé dans le planning
-function getOrderWindowStatus(schedule = DEFAULT_SCHEDULE) {
-  const isOpen = WEEK_DAYS.some((d) => schedule[d.key]?.active);
+// Statut d'ouverture : ouvert dès qu'au moins un jour est disponible
+function getOrderWindowStatus(schedule = DEFAULT_SCHEDULE, openDates = {}) {
+  const isOpen = getScheduleWithDates(schedule, [], openDates).length > 0;
   return { isOpen };
 }
 
@@ -212,12 +281,12 @@ function SectionEyebrow({ children }) {
 }
 
 // ---------------------------------------------------------------------------
-// Écran Choix du jour : samedi apéro ou dimanche brunch
+// Écran Choix du jour : jours de retrait ouverts par l'admin
 // ---------------------------------------------------------------------------
-function DayPickerScreen({ onSelectDay, schedule, blockedDates, orderWindow, onOpenAdmin }) {
+function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin }) {
   const activeDays = useMemo(
-    () => getScheduleWithDates(schedule, blockedDates),
-    [schedule, blockedDates]
+    () => getScheduleWithDates(schedule, blockedDates, openDates),
+    [schedule, blockedDates, openDates]
   );
 
   return (
@@ -250,7 +319,7 @@ function DayPickerScreen({ onSelectDay, schedule, blockedDates, orderWindow, onO
       <main className="px-5 flex flex-col gap-4">
         {activeDays.length === 0 && (
           <div className="bg-[#C97B63]/10 rounded-xl px-4 py-4 text-sm text-[#C97B63] text-center">
-            <span className="font-semibold block mb-1">Aucun jour disponible cette semaine</span>
+            <span className="font-semibold block mb-1">Aucun jour disponible pour le moment</span>
             Revenez bientôt !
           </div>
         )}
@@ -665,7 +734,7 @@ function PinScreen({ onBack, onSuccess }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : édition du contenu hebdomadaire (partagé)
 // ---------------------------------------------------------------------------
-function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates, onSaveBlocked, schedule, onSaveSchedule }) {
+function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates, onSaveBlocked, schedule, onSaveSchedule, openDates, onSaveOpenDates }) {
   const [draft, setDraft] = useState(() => {
     const initial = {};
     FORMULAS.forEach((f) => {
@@ -677,6 +746,44 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [newBlockedDate, setNewBlockedDate] = useState("");
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  const weekend = useMemo(() => getWeekendDates(monthOffset), [monthOffset]);
+  const monthLabel = useMemo(() => {
+    const s = weekend.monthDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }, [weekend]);
+
+  const defaultSlotsFor = (jsDay) =>
+    jsDay === 6 ? DEFAULT_SCHEDULE.samedi.slots : DEFAULT_SCHEDULE.dimanche.slots;
+
+  const handleToggleOpenDate = (d) => {
+    const next = { ...openDates };
+    if (next[d.iso] !== undefined) {
+      delete next[d.iso];
+    } else {
+      next[d.iso] = defaultSlotsFor(d.jsDay);
+    }
+    onSaveOpenDates(next);
+  };
+
+  const handleOpenDateSlots = (iso, value) => {
+    onSaveOpenDates({ ...openDates, [iso]: value });
+  };
+
+  const handleOpenAllWeekends = () => {
+    const next = { ...openDates };
+    weekend.dates.forEach((d) => {
+      if (next[d.iso] === undefined) next[d.iso] = defaultSlotsFor(d.jsDay);
+    });
+    onSaveOpenDates(next);
+  };
+
+  const handleCloseAllWeekends = () => {
+    const next = { ...openDates };
+    weekend.dates.forEach((d) => delete next[d.iso]);
+    onSaveOpenDates(next);
+  };
 
   const handleAddBlocked = () => {
     if (!newBlockedDate) return;
@@ -773,17 +880,94 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
           </div>
         ))}
 
+        {/* Week-ends ouverts : on choisit date par date */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <h3 className="text-sm text-[#3E2F22] font-semibold mb-1" style={{ fontFamily: "'Fraunces', serif" }}>
+            🗓️ Week-ends ouverts
+          </h3>
+          <p className="text-xs text-[#3E2F22]/50 mb-3">
+            Active les samedis et dimanches où tu proposes des box, et ajuste les créneaux de chaque date (séparés par des virgules).
+          </p>
 
-        {/* Planning 7 jours */}
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={() => setMonthOffset(0)}
+              className={`flex-1 text-xs font-medium rounded-full py-2 transition ${monthOffset === 0 ? "bg-[#5B6B4F] text-white" : "bg-[#FBF3E7] text-[#3E2F22]/60"}`}
+            >
+              Ce mois-ci
+            </button>
+            <button
+              onClick={() => setMonthOffset(1)}
+              className={`flex-1 text-xs font-medium rounded-full py-2 transition ${monthOffset === 1 ? "bg-[#5B6B4F] text-white" : "bg-[#FBF3E7] text-[#3E2F22]/60"}`}
+            >
+              Mois suivant
+            </button>
+          </div>
+
+          <p className="text-xs text-[#5B6B4F] font-medium mb-2">{monthLabel}</p>
+
+          {weekend.dates.length === 0 ? (
+            <p className="text-xs text-[#3E2F22]/40">Plus de week-end à venir ce mois-ci.</p>
+          ) : (
+            <>
+              <div className="flex gap-2 mb-3">
+                <button
+                  onClick={handleOpenAllWeekends}
+                  className="flex-1 text-xs font-medium text-[#3E2F22] bg-[#FBF3E7] rounded-full py-2 active:scale-95 transition"
+                >
+                  Tout ouvrir
+                </button>
+                <button
+                  onClick={handleCloseAllWeekends}
+                  className="flex-1 text-xs font-medium text-[#3E2F22]/60 bg-[#FBF3E7] rounded-full py-2 active:scale-95 transition"
+                >
+                  Tout fermer
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {weekend.dates.map((d) => {
+                  const isActive = openDates[d.iso] !== undefined;
+                  return (
+                    <div key={d.iso} className="border border-[#3E2F22]/8 rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm text-[#3E2F22] font-medium">
+                          {formatDayLabel(d.date)} {d.emoji}
+                        </p>
+                        <button
+                          onClick={() => handleToggleOpenDate(d)}
+                          aria-label={`Ouvrir ou fermer ${formatDayLabel(d.date)}`}
+                          className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${isActive ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
+                        >
+                          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isActive ? "translate-x-6" : "translate-x-0.5"}`} />
+                        </button>
+                      </div>
+                      {isActive && (
+                        <input
+                          type="text"
+                          value={openDates[d.iso]}
+                          onChange={(e) => handleOpenDateSlots(d.iso, e.target.value)}
+                          placeholder="10h00, 10h30, 11h00"
+                          className="w-full text-xs text-[#3E2F22] bg-[#FBF3E7] rounded-lg px-3 py-2 outline-none border border-transparent focus:border-[#C97B63]/40"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Planning lundi → vendredi */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
-            📆 Planning de la semaine
+            📆 Jours de semaine (lundi → vendredi)
           </h3>
           <p className="text-xs text-[#3E2F22]/50 mb-4">
-            Active les jours de retrait et saisis les créneaux séparés par des virgules (ex: 10h00, 10h30, 11h00).
+            Active les jours de retrait en semaine et saisis les créneaux séparés par des virgules (ex: 10h00, 10h30, 11h00). Les week-ends se gèrent date par date juste au-dessus.
           </p>
           <div className="flex flex-col gap-4">
-            {WEEK_DAYS.map((day) => {
+            {WEEK_DAYS.filter((d) => d.jsDay !== 0 && d.jsDay !== 6).map((day) => {
               const cfg = schedule[day.key] || { active: false, slots: "" };
               return (
                 <div key={day.key} className="border border-[#3E2F22]/8 rounded-xl p-3">
@@ -814,10 +998,10 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
         {/* Section jours sans box */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
-            📅 Jours sans box
+            📅 Jours sans box (semaine)
           </h3>
           <p className="text-xs text-[#3E2F22]/50 mb-3">
-            Ajoute les dates des jours sans box (samedi ou dimanche). Les commandes seront automatiquement redirigées vers la date suivante disponible.
+            Ajoute les dates des jours de semaine sans box. Les commandes seront automatiquement redirigées vers la date suivante disponible.
           </p>
           <div className="flex gap-2 mb-3">
             <input
@@ -835,7 +1019,7 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
             </button>
           </div>
           {blockedDates.length === 0 ? (
-            <p className="text-xs text-[#3E2F22]/40">Aucun dimanche bloqué.</p>
+            <p className="text-xs text-[#3E2F22]/40">Aucun jour bloqué.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {blockedDates.map((date) => (
@@ -1002,9 +1186,13 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 }
 
 // ---------------------------------------------------------------------------
-// Écran Créneau
+// Écran Créneau (+ option livraison)
 // ---------------------------------------------------------------------------
-function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, daySlots, boxAlreadyBooked, boxInCart, loadingCapacity }) {
+function SlotScreen({
+  onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, daySlots,
+  boxAlreadyBooked, boxInCart, loadingCapacity,
+  deliveryMode, onToggleDelivery, address, onAddressChange,
+}) {
   const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
   const wouldExceed = boxInCart > remaining;
   const isFull = remaining <= 0;
@@ -1012,6 +1200,8 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, d
   const creneauxLabel = activeSlots.length > 0
     ? `Créneaux · ${activeSlots[0]}–${activeSlots[activeSlots.length-1]}`
     : "Créneaux à définir";
+  const addressValid = address.trim().length >= 8;
+  const missingAddress = deliveryMode && !addressValid;
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
@@ -1020,13 +1210,15 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, d
           <ArrowLeft className="w-4 h-4 text-[#3E2F22]" />
         </button>
         <h2 className="text-lg text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
-          Heure de retrait
+          {deliveryMode ? "Heure de livraison" : "Heure de retrait"}
         </h2>
       </header>
 
       <main className="px-5">
         <p className="text-sm text-[#3E2F22]/60 mb-1">
-          Retrait sur place, {dayLabel ? dayLabel.toLowerCase() : "ce jour"}.
+          {deliveryMode
+            ? `Livraison à votre adresse, ${dayLabel ? dayLabel.toLowerCase() : "ce jour"}.`
+            : `Retrait sur place, ${dayLabel ? dayLabel.toLowerCase() : "ce jour"}.`}
         </p>
         <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
 
@@ -1070,17 +1262,53 @@ function SlotScreen({ onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, d
             );
           })}
         </div>
+
+        {/* Option livraison */}
+        <div className="mt-6 pt-5 border-t border-dashed border-[#3E2F22]/10">
+          <button
+            onClick={() => onToggleDelivery(!deliveryMode)}
+            className={`w-full flex items-center justify-center gap-2 rounded-full py-3 text-sm font-medium border transition active:scale-[0.98] ${
+              deliveryMode
+                ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
+                : "bg-white text-[#3E2F22] border-[#3E2F22]/10"
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            {deliveryMode ? "Livraison choisie · toucher pour annuler" : "Je souhaite être livré(e)"}
+          </button>
+
+          {deliveryMode && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5 mt-3">
+              <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#5B6B4F] mb-2">
+                <MapPin className="w-3.5 h-3.5" />
+                Adresse de livraison
+              </label>
+              <textarea
+                value={address}
+                onChange={(e) => onAddressChange(e.target.value)}
+                rows={3}
+                placeholder={"N° et nom de rue\nCode postal, ville\nInfos utiles (étage, digicode…)"}
+                className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none resize-none border border-transparent focus:border-[#C97B63]/40"
+              />
+            </div>
+          )}
+        </div>
       </main>
 
       <div className="fixed bottom-5 left-0 right-0 px-5">
         <button
           onClick={onConfirm}
-          disabled={!selectedSlot || isFull || wouldExceed}
+          disabled={!selectedSlot || isFull || wouldExceed || missingAddress}
           className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
         >
           <Check className="w-4 h-4" />
           <span className="text-sm font-semibold">{selectedSlot ? `Confirmer pour ${selectedSlot}` : "Choisissez un créneau"}</span>
         </button>
+        {missingAddress && selectedSlot && (
+          <p className="text-center text-xs text-[#3E2F22]/50 mt-2">
+            Indiquez votre adresse de livraison pour continuer
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1116,11 +1344,23 @@ function ConfirmScreen({ order, onNewOrder }) {
 
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-[#3E2F22]/5 mt-6 p-5">
         <div className="flex items-center justify-between pb-3 border-b border-dashed border-[#3E2F22]/15">
-          <span className="text-xs uppercase tracking-wide text-[#5B6B4F]">Retrait à emporter</span>
+          <span className="text-xs uppercase tracking-wide text-[#5B6B4F]">
+            {order.delivery ? "Livraison" : "Retrait à emporter"}
+          </span>
           <span className="text-base font-semibold text-[#3E2F22] text-right" style={{ fontFamily: "'Fraunces', serif" }}>
             {order.dayLabel ? `${order.dayLabel} · ` : ""}{order.slot}
           </span>
         </div>
+
+        {order.delivery && (
+          <div className="flex items-start justify-between gap-3 py-2.5 border-b border-dashed border-[#3E2F22]/15">
+            <span className="text-xs text-[#3E2F22]/50 flex items-center gap-1.5 shrink-0">
+              <MapPin className="w-3 h-3" />
+              Adresse
+            </span>
+            <span className="text-sm text-[#3E2F22] text-right whitespace-pre-line">{order.address}</span>
+          </div>
+        )}
 
         <div className="flex items-center justify-between py-2.5 border-b border-dashed border-[#3E2F22]/15">
           <span className="text-xs text-[#3E2F22]/50 flex items-center gap-1.5">
@@ -1157,7 +1397,9 @@ function ConfirmScreen({ order, onNewOrder }) {
       <p className="text-xs text-[#3E2F22]/40 mt-5 text-center max-w-xs">
         Numéro de commande : {order.id}
         <br />
-        Présentez-vous à l'heure indiquée, votre box vous attendra.
+        {order.delivery
+          ? "Votre box vous sera livrée à l'heure indiquée."
+          : "Présentez-vous à l'heure indiquée, votre box vous attendra."}
       </p>
 
       <button onClick={onNewOrder} className="mt-8 text-sm text-[#5B6B4F] underline underline-offset-2">
@@ -1174,11 +1416,13 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
   const [copiedId, setCopiedId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-  const sorted = [...orders].sort((a, b) => (a.slot || "").localeCompare(b.slot || ""));
+  const sorted = [...orders].sort((a, b) =>
+    `${a.dayIso || ""} ${a.slot || ""}`.localeCompare(`${b.dayIso || ""} ${b.slot || ""}`)
+  );
   const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
 
   const handleCopy = (order) => {
-    const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\nRetrait : ${order.slot}\nTél : ${order.phone}`;
+    const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\n${order.delivery ? "Livraison" : "Retrait"} : ${order.dayLabel ? order.dayLabel + " · " : ""}${order.slot}${order.delivery ? `\nAdresse : ${order.address}` : ""}\nTél : ${order.phone}`;
     navigator.clipboard?.writeText(text);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 1500);
@@ -1233,20 +1477,27 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
         {sorted.map((order) => (
           <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  {order.slot || "—"}
+                  {order.dayLabel ? `${order.dayLabel} · ` : ""}{order.slot || "—"}
                 </span>
                 <span className="text-[10px] text-[#3E2F22]/40">#{order.id}</span>
               </div>
               <span
-                className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded-full font-medium ${
+                className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded-full font-medium shrink-0 ${
                   order.paid ? "bg-[#5B6B4F]/15 text-[#5B6B4F]" : "bg-[#C97B63]/15 text-[#C97B63]"
                 }`}
               >
                 {order.paid ? "Payée" : "En attente"}
               </span>
             </div>
+
+            {order.delivery && (
+              <div className="mt-2 flex items-start gap-1.5 bg-[#5B6B4F]/10 rounded-lg px-2.5 py-2 text-xs text-[#5B6B4F]">
+                <Truck className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span className="whitespace-pre-line">Livraison · {order.address}</span>
+              </div>
+            )}
 
             <ul className="mt-2 flex flex-col gap-0.5">
               {order.lines.map((line, i) => (
@@ -1306,20 +1557,23 @@ export default function App() {
   const [step, setStep] = useState("loading");
   const [cart, setCart] = useState({});
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [selectedDay, setSelectedDay] = useState(null); // clé du jour ex: "samedi", "dimanche", "lundi"...
+  const [selectedDay, setSelectedDay] = useState(null); // clé du jour ex: "lundi" ou date ISO d'un week-end "2026-11-07"
   const [lastOrder, setLastOrder] = useState(null);
   const [weeklyContent, setWeeklyContent] = useState({});
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState(false);
+  const [address, setAddress] = useState("");
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
   const [blockedDates, setBlockedDates] = useState([]);
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
+  const [openDates, setOpenDates] = useState({});
 
-  const orderWindow = useMemo(() => getOrderWindowStatus(schedule), [schedule]);
-  const activeDays = useMemo(() => getScheduleWithDates(schedule, blockedDates), [schedule, blockedDates]);
+  const activeDays = useMemo(() => getScheduleWithDates(schedule, blockedDates, openDates), [schedule, blockedDates, openDates]);
+  const orderWindow = useMemo(() => ({ isOpen: activeDays.length > 0 }), [activeDays]);
   const selectedDayData = useMemo(() => activeDays.find((d) => d.key === selectedDay) || null, [activeDays, selectedDay]);
   const dayLabel = useMemo(() => selectedDayData ? formatDayLabel(selectedDayData.nextDate.date) : "", [selectedDayData]);
   const daySlots = useMemo(() => selectedDayData?.slots || [], [selectedDayData]);
@@ -1338,6 +1592,10 @@ export default function App() {
       try {
         const result = await window.storage.get(SCHEDULE_KEY, true);
         if (result?.value) setSchedule(JSON.parse(result.value));
+      } catch (e) {}
+      try {
+        const result = await window.storage.get(OPEN_DATES_KEY, true);
+        if (result?.value) setOpenDates(JSON.parse(result.value));
       } catch (e) {}
       setStep("daypicker");
     })();
@@ -1382,9 +1640,16 @@ export default function App() {
     } catch (e) {}
   };
 
+  const handleSaveOpenDates = async (newOpenDates) => {
+    setOpenDates(newOpenDates);
+    try {
+      await window.storage.set(OPEN_DATES_KEY, JSON.stringify(newOpenDates), true);
+    } catch (e) {}
+  };
+
   const handleConfirmOrder = async () => {
     // Sécurité : revérifie que la fenêtre de commande est toujours ouverte.
-    if (!getOrderWindowStatus(schedule).isOpen) {
+    if (!getOrderWindowStatus(schedule, openDates).isOpen) {
       setStep("daypicker");
       return;
     }
@@ -1410,6 +1675,8 @@ export default function App() {
       dayKey: selectedDay,
       firstName: firstName.trim(),
       phone: phone.trim(),
+      delivery: deliveryMode,
+      address: deliveryMode ? address.trim() : "",
       paid: false,
       createdAt: new Date().toISOString(),
     };
@@ -1427,8 +1694,8 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: NTFY_TOPIC,
-          title: `Nouvelle commande - ${order.total.toFixed(2)} EUR`,
-          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join(", ")}\nRetrait : ${order.slot}`,
+          title: `${order.delivery ? "Nouvelle commande LIVRAISON" : "Nouvelle commande"} - ${order.total.toFixed(2)} EUR`,
+          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join(", ")}\n${order.delivery ? "Livraison" : "Retrait"} : ${order.dayLabel ? order.dayLabel + " " : ""}${order.slot}${order.delivery ? `\nAdresse : ${order.address}` : ""}`,
           priority: 5,
           tags: ["shopping_cart"],
         }),
@@ -1447,6 +1714,8 @@ export default function App() {
     setSelectedDay(null);
     setPhone("");
     setFirstName("");
+    setDeliveryMode(false);
+    setAddress("");
     setLastOrder(null);
     setStep("daypicker");
   };
@@ -1479,7 +1748,7 @@ export default function App() {
     loadOrders();
   };
 
-  const loadSundayCapacity = async () => {
+  const loadDayCapacity = async () => {
     setLoadingCapacity(true);
     try {
       const list = await window.storage.list("order:", true);
@@ -1544,31 +1813,13 @@ export default function App() {
 
       {step === "daypicker" && (
         <DayPickerScreen
-          onBack={() => {}}
           onSelectDay={(day) => {
             if (day === "devis") { setStep("devis"); return; }
             setSelectedDay(day); setCart({}); setStep("menu");
           }}
           schedule={schedule}
           blockedDates={blockedDates}
-          orderWindow={orderWindow}
-          onOpenAdmin={() => setStep("pin")}
-        />
-      )}
-
-      {step === "devis" && (
-        <DevisScreen onBack={() => setStep("daypicker")} />
-      )}
-
-      {step === "daypicker" && (
-        <DayPickerScreen
-          onSelectDay={(day) => {
-            if (day === "devis") { setStep("devis"); return; }
-            setSelectedDay(day); setCart({}); setStep("menu");
-          }}
-          schedule={schedule}
-          blockedDates={blockedDates}
-          orderWindow={orderWindow}
+          openDates={openDates}
           onOpenAdmin={() => setStep("pin")}
         />
       )}
@@ -1606,6 +1857,8 @@ export default function App() {
           onSaveBlocked={handleSaveBlocked}
           schedule={schedule}
           onSaveSchedule={handleSaveSchedule}
+          openDates={openDates}
+          onSaveOpenDates={handleSaveOpenDates}
         />
       )}
 
@@ -1629,7 +1882,7 @@ export default function App() {
           onBack={() => setStep("menu")}
           onAdd={handleAdd}
           onRemove={handleRemove}
-          onNext={() => { setStep("slot"); loadSundayCapacity(); }}
+          onNext={() => { setStep("slot"); loadDayCapacity(); }}
         />
       )}
 
@@ -1644,6 +1897,10 @@ export default function App() {
           boxAlreadyBooked={boxAlreadyBooked}
           boxInCart={boxInCart}
           loadingCapacity={loadingCapacity}
+          deliveryMode={deliveryMode}
+          onToggleDelivery={setDeliveryMode}
+          address={address}
+          onAddressChange={setAddress}
         />
       )}
 
