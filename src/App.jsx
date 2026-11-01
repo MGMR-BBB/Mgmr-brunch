@@ -1,3 +1,4 @@
+```jsx
 import "./storage.js";
 import React, { useState, useEffect, useMemo } from "react";
 import {
@@ -1217,10 +1218,10 @@ function SlotScreen({
       <main className="px-5">
         <p className="text-sm text-[#3E2F22]/60 mb-1">
           {deliveryMode
-            ? `Livraison à votre adresse, ${dayLabel ? dayLabel.toLowerCase() : "ce jour"}.`
+            ? `Livraison à votre adresse, ${dayLabel ? dayLabel.toLowerCase() : "ce jour"}. Pas d'heure à choisir.`
             : `Retrait sur place, ${dayLabel ? dayLabel.toLowerCase() : "ce jour"}.`}
         </p>
-        <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>
+        {!deliveryMode && <p className="text-xs text-[#5B6B4F] mb-1">{creneauxLabel}</p>}
 
         {loadingCapacity ? (
           <p className="text-xs text-[#3E2F22]/40 mb-5">Vérification des places disponibles…</p>
@@ -1240,6 +1241,7 @@ function SlotScreen({
           </div>
         )}
 
+        {!deliveryMode && (
         <div className="grid grid-cols-3 gap-2.5">
           {activeSlots.map((slot) => {
             const isSelected = selectedSlot === slot;
@@ -1262,9 +1264,10 @@ function SlotScreen({
             );
           })}
         </div>
+        )}
 
         {/* Option livraison */}
-        <div className="mt-6 pt-5 border-t border-dashed border-[#3E2F22]/10">
+        <div className={`${deliveryMode ? "mt-2" : "mt-6 pt-5 border-t border-dashed border-[#3E2F22]/10"}`}>
           <button
             onClick={() => onToggleDelivery(!deliveryMode)}
             className={`w-full flex items-center justify-center gap-2 rounded-full py-3 text-sm font-medium border transition active:scale-[0.98] ${
@@ -1298,13 +1301,15 @@ function SlotScreen({
       <div className="fixed bottom-5 left-0 right-0 px-5">
         <button
           onClick={onConfirm}
-          disabled={!selectedSlot || isFull || wouldExceed || missingAddress}
+          disabled={(!deliveryMode && !selectedSlot) || isFull || wouldExceed || missingAddress}
           className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
         >
           <Check className="w-4 h-4" />
-          <span className="text-sm font-semibold">{selectedSlot ? `Confirmer pour ${selectedSlot}` : "Choisissez un créneau"}</span>
+          <span className="text-sm font-semibold">
+            {deliveryMode ? "Confirmer la livraison" : selectedSlot ? `Confirmer pour ${selectedSlot}` : "Choisissez un créneau"}
+          </span>
         </button>
-        {missingAddress && selectedSlot && (
+        {missingAddress && (
           <p className="text-center text-xs text-[#3E2F22]/50 mt-2">
             Indiquez votre adresse de livraison pour continuer
           </p>
@@ -1348,7 +1353,7 @@ function ConfirmScreen({ order, onNewOrder }) {
             {order.delivery ? "Livraison" : "Retrait à emporter"}
           </span>
           <span className="text-base font-semibold text-[#3E2F22] text-right" style={{ fontFamily: "'Fraunces', serif" }}>
-            {order.dayLabel ? `${order.dayLabel} · ` : ""}{order.slot}
+            {[order.dayLabel, order.slot].filter(Boolean).join(" · ")}
           </span>
         </div>
 
@@ -1398,7 +1403,7 @@ function ConfirmScreen({ order, onNewOrder }) {
         Numéro de commande : {order.id}
         <br />
         {order.delivery
-          ? "Votre box vous sera livrée à l'heure indiquée."
+          ? "Votre box vous sera livrée à l'adresse indiquée."
           : "Présentez-vous à l'heure indiquée, votre box vous attendra."}
       </p>
 
@@ -1422,7 +1427,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
   const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
 
   const handleCopy = (order) => {
-    const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\n${order.delivery ? "Livraison" : "Retrait"} : ${order.dayLabel ? order.dayLabel + " · " : ""}${order.slot}${order.delivery ? `\nAdresse : ${order.address}` : ""}\nTél : ${order.phone}`;
+    const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\n${order.delivery ? "Livraison" : "Retrait"} : ${[order.dayLabel, order.slot].filter(Boolean).join(" · ")}${order.delivery ? `\nAdresse : ${order.address}` : ""}\nTél : ${order.phone}`;
     navigator.clipboard?.writeText(text);
     setCopiedId(order.id);
     setTimeout(() => setCopiedId(null), 1500);
@@ -1479,7 +1484,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  {order.dayLabel ? `${order.dayLabel} · ` : ""}{order.slot || "—"}
+                  {[order.dayLabel, order.slot].filter(Boolean).join(" · ") || "—"}
                 </span>
                 <span className="text-[10px] text-[#3E2F22]/40">#{order.id}</span>
               </div>
@@ -1669,7 +1674,7 @@ export default function App() {
       cart,
       lines,
       total,
-      slot: selectedSlot,
+      slot: deliveryMode ? "" : selectedSlot,
       dayIso: selectedDayData?.nextDate.iso || "",
       dayLabel,
       dayKey: selectedDay,
@@ -1695,7 +1700,7 @@ export default function App() {
         body: JSON.stringify({
           topic: NTFY_TOPIC,
           title: `${order.delivery ? "Nouvelle commande LIVRAISON" : "Nouvelle commande"} - ${order.total.toFixed(2)} EUR`,
-          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join(", ")}\n${order.delivery ? "Livraison" : "Retrait"} : ${order.dayLabel ? order.dayLabel + " " : ""}${order.slot}${order.delivery ? `\nAdresse : ${order.address}` : ""}`,
+          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join(", ")}\n${order.delivery ? "Livraison" : "Retrait"} : ${[order.dayLabel, order.slot].filter(Boolean).join(" ")}${order.delivery ? `\nAdresse : ${order.address}` : ""}`,
           priority: 5,
           tags: ["shopping_cart"],
         }),
@@ -1908,3 +1913,4 @@ export default function App() {
     </div>
   );
 }
+```
