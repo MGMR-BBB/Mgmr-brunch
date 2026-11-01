@@ -1,4 +1,3 @@
-```jsx
 import "./storage.js";
 import React, { useState, useEffect, useMemo } from "react";
 import {
@@ -94,7 +93,7 @@ const FORMULAS = [
   {
     id: "apero",
     name: "Box Apéro",
-    price: 30,
+    price: 28,
     people: "2-3 personnes",
     emoji: "🥳",
     defaultItems: [
@@ -1913,4 +1912,3 @@ export default function App() {
     </div>
   );
 }
-```
