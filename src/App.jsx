@@ -532,7 +532,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
         </StampRing>
         <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
         <p className="mt-4 text-sm text-[#3E2F22]/70 max-w-xs mx-auto">
-          Fait maison · produits frais · à emporter à l'heure qui vous convient.
+          Fait maison · produits frais · Livraison ou à emporter.
         </p>
       </header>
 
