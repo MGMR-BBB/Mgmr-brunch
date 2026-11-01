@@ -93,7 +93,7 @@ const FORMULAS = [
   {
     id: "apero",
     name: "Box Apéro",
-    price: 30,
+    price: 28,
     people: "2-3 personnes",
     emoji: "🥳",
     defaultItems: [
@@ -132,6 +132,66 @@ const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... 
 const OPEN_DATES_KEY = "open-dates"; // { "2026-11-07": "18h30, 18h45", ... } week-ends ouverts
 
 const WEEKLY_BOX_LIMIT = 8;
+
+// Zone de livraison : 25 km (à vol d'oiseau) autour de Bessens (82170)
+const DELIVERY_CENTER = { lat: 43.8806, lng: 1.2531 };
+const DELIVERY_MAX_KM = 25;
+// Tarifs : gratuit à Bessens, 2 € si moins de 15 km, 4 € de 15 à 25 km
+const DELIVERY_FEE_NEAR = 2;
+const DELIVERY_FEE_FAR = 4;
+const DELIVERY_NEAR_KM = 15;
+
+const normalizeText = (t) => (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+function deliveryFeeFor(km, city) {
+  if (normalizeText(city) === "bessens") return 0;
+  return km < DELIVERY_NEAR_KM ? DELIVERY_FEE_NEAR : DELIVERY_FEE_FAR;
+}
+
+function isAddressValid(f) {
+  return f.street.trim().length >= 3 && /^\d{5}$/.test(f.postcode.trim()) && f.city.trim().length >= 2;
+}
+
+function haversineKm(a, b) {
+  const R = 6371;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Géocode l'adresse (API officielle adresse.data.gouv.fr) et calcule la distance
+async function checkDeliveryAddress({ street, postcode, city }) {
+  try {
+    const q = `${street} ${postcode} ${city}`.trim();
+    const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=1`);
+    if (!res.ok) throw new Error("http " + res.status);
+    const data = await res.json();
+    const f = data?.features?.[0];
+    if (!f || (f.properties?.score ?? 0) < 0.5) {
+      return { status: "notfound", message: "Adresse introuvable. Vérifiez la rue, le code postal et la ville." };
+    }
+    const [lng, lat] = f.geometry.coordinates;
+    const km = haversineKm(DELIVERY_CENTER, { lat, lng });
+    if (km > DELIVERY_MAX_KM) {
+      return {
+        status: "toofar",
+        km,
+        message: `Désolé, nous livrons uniquement dans un rayon de ${DELIVERY_MAX_KM} km autour de Bessens (votre adresse est à environ ${Math.round(km)} km). Vous pouvez choisir le retrait sur place.`,
+      };
+    }
+    return {
+      status: "ok",
+      km: Math.round(km * 10) / 10,
+      fee: deliveryFeeFor(km, f.properties?.city),
+    };
+  } catch (e) {
+    return { status: "error", message: "Impossible de vérifier l'adresse pour le moment. Réessayez dans un instant." };
+  }
+}
 
 // Jours de la semaine (ordre JS : 0=dim, 1=lun, ..., 6=sam)
 const WEEK_DAYS = [
@@ -532,7 +592,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
         </StampRing>
         <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
         <p className="mt-4 text-sm text-[#3E2F22]/70 max-w-xs mx-auto">
-          Fait maison · produits frais · Livraison ou à emporter.
+          Fait maison · produits frais · à emporter à l'heure qui vous convient.
         </p>
       </header>
 
@@ -1191,7 +1251,7 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 function SlotScreen({
   onBack, selectedSlot, onSelectSlot, onConfirm, dayLabel, daySlots,
   boxAlreadyBooked, boxInCart, loadingCapacity,
-  deliveryMode, onToggleDelivery, address, onAddressChange,
+  deliveryMode, onToggleDelivery, addressForm, onAddressFormChange, deliveryError, checkingDelivery, deliveryInfo,
 }) {
   const remaining = WEEKLY_BOX_LIMIT - boxAlreadyBooked;
   const wouldExceed = boxInCart > remaining;
@@ -1200,7 +1260,11 @@ function SlotScreen({
   const creneauxLabel = activeSlots.length > 0
     ? `Créneaux · ${activeSlots[0]}–${activeSlots[activeSlots.length-1]}`
     : "Créneaux à définir";
-  const addressValid = address.trim().length >= 8;
+  const setField = (k, v) => onAddressFormChange({ ...addressForm, [k]: v });
+  const addressValid =
+    addressForm.street.trim().length >= 3 &&
+    /^\d{5}$/.test(addressForm.postcode.trim()) &&
+    addressForm.city.trim().length >= 2;
   const missingAddress = deliveryMode && !addressValid;
 
   return (
@@ -1285,13 +1349,56 @@ function SlotScreen({
                 <MapPin className="w-3.5 h-3.5" />
                 Adresse de livraison
               </label>
-              <textarea
-                value={address}
-                onChange={(e) => onAddressChange(e.target.value)}
-                rows={3}
-                placeholder={"N° et nom de rue\nCode postal, ville\nInfos utiles (étage, digicode…)"}
-                className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none resize-none border border-transparent focus:border-[#C97B63]/40"
-              />
+              <div className="flex flex-col gap-2">
+                <input
+                  type="text"
+                  value={addressForm.street}
+                  onChange={(e) => setField("street", e.target.value)}
+                  placeholder="N° et nom de rue"
+                  className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={5}
+                    value={addressForm.postcode}
+                    onChange={(e) => setField("postcode", e.target.value.replace(/\D/g, ""))}
+                    placeholder="Code postal"
+                    className="w-28 shrink-0 text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+                  />
+                  <input
+                    type="text"
+                    value={addressForm.city}
+                    onChange={(e) => setField("city", e.target.value)}
+                    placeholder="Ville"
+                    className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={addressForm.notes}
+                  onChange={(e) => setField("notes", e.target.value)}
+                  placeholder="Étage, digicode… (facultatif)"
+                  className="w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+                />
+              </div>
+              <p className="text-[11px] text-[#3E2F22]/45 mt-2">
+                Offerte à Bessens · {DELIVERY_FEE_NEAR} € jusqu'à {DELIVERY_NEAR_KM} km · {DELIVERY_FEE_FAR} € de {DELIVERY_NEAR_KM} à {DELIVERY_MAX_KM} km.
+              </p>
+              {deliveryInfo?.status === "checking" && (
+                <p className="text-xs text-[#3E2F22]/50 mt-2">Calcul des frais de livraison…</p>
+              )}
+              {deliveryInfo?.status === "ok" && !deliveryError && (
+                <div className="mt-2 bg-[#5B6B4F]/10 rounded-lg px-3 py-2 text-xs text-[#5B6B4F] font-medium">
+                  {deliveryInfo.fee > 0
+                    ? `Frais de livraison : ${deliveryInfo.fee.toFixed(2)} € (${Math.round(deliveryInfo.km)} km)`
+                    : "Livraison offerte à Bessens 🎉"}
+                </div>
+              )}
+              {(deliveryError || (deliveryInfo && deliveryInfo.status !== "ok" && deliveryInfo.status !== "checking")) && (
+                <p className="text-xs text-red-500 mt-2">{deliveryError || deliveryInfo.message}</p>
+              )}
             </div>
           )}
         </div>
@@ -1300,12 +1407,12 @@ function SlotScreen({
       <div className="fixed bottom-5 left-0 right-0 px-5">
         <button
           onClick={onConfirm}
-          disabled={(!deliveryMode && !selectedSlot) || isFull || wouldExceed || missingAddress}
+          disabled={(!deliveryMode && !selectedSlot) || isFull || wouldExceed || missingAddress || checkingDelivery || (deliveryMode && ["checking", "toofar", "notfound"].includes(deliveryInfo?.status))}
           className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
         >
-          <Check className="w-4 h-4" />
+          {checkingDelivery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
           <span className="text-sm font-semibold">
-            {deliveryMode ? "Confirmer la livraison" : selectedSlot ? `Confirmer pour ${selectedSlot}` : "Choisissez un créneau"}
+            {checkingDelivery ? "Vérification de l'adresse…" : deliveryMode ? "Confirmer la livraison" : selectedSlot ? `Confirmer pour ${selectedSlot}` : "Choisissez un créneau"}
           </span>
         </button>
         {missingAddress && (
@@ -1326,7 +1433,7 @@ function ConfirmScreen({ order, onNewOrder }) {
   const total = items.reduce((sum, [id, v]) => {
     const formula = FORMULAS.find((f) => f.id === id);
     return sum + formula.price * v.qty;
-  }, 0);
+  }, 0) + (order.deliveryFee || 0);
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] flex flex-col items-center px-5 pt-12 pb-10">
@@ -1388,6 +1495,14 @@ function ConfirmScreen({ order, onNewOrder }) {
               </div>
             );
           })}
+          {order.delivery && (
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-sm text-[#3E2F22] font-medium">Livraison</span>
+              <span className="text-sm text-[#3E2F22]/70 shrink-0">
+                {order.deliveryFee > 0 ? `${order.deliveryFee.toFixed(2)} €` : "Offerte"}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between pt-3 border-t border-dashed border-[#3E2F22]/15">
@@ -1499,7 +1614,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
             {order.delivery && (
               <div className="mt-2 flex items-start gap-1.5 bg-[#5B6B4F]/10 rounded-lg px-2.5 py-2 text-xs text-[#5B6B4F]">
                 <Truck className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                <span className="whitespace-pre-line">Livraison · {order.address}</span>
+                <span className="whitespace-pre-line">Livraison · {order.address}{order.deliveryKm ? ` (${order.deliveryKm} km)` : ""}</span>
               </div>
             )}
 
@@ -1567,7 +1682,10 @@ export default function App() {
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [deliveryMode, setDeliveryMode] = useState(false);
-  const [address, setAddress] = useState("");
+  const [addressForm, setAddressForm] = useState({ street: "", postcode: "", city: "", notes: "" });
+  const [deliveryError, setDeliveryError] = useState("");
+  const [checkingDelivery, setCheckingDelivery] = useState(false);
+  const [deliveryInfo, setDeliveryInfo] = useState(null);
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
@@ -1604,6 +1722,24 @@ export default function App() {
       setStep("daypicker");
     })();
   }, []);
+
+  // Vérification automatique de l'adresse (distance + frais) pendant la saisie
+  useEffect(() => {
+    if (!deliveryMode || !isAddressValid(addressForm)) {
+      setDeliveryInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setDeliveryInfo({ status: "checking" });
+    const t = setTimeout(async () => {
+      const res = await checkDeliveryAddress(addressForm);
+      if (!cancelled) setDeliveryInfo(res);
+    }, 700);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [deliveryMode, addressForm]);
 
   const handleAdd = (id) => {
     setCart((prev) => ({ ...prev, [id]: { qty: (prev[id]?.qty || 0) + 1 } }));
@@ -1658,15 +1794,40 @@ export default function App() {
       return;
     }
 
+    // Livraison : vérifie que l'adresse est dans la zone (25 km autour de Bessens)
+    let deliveryKm = null;
+    let deliveryFee = 0;
+    let addressString = "";
+    if (deliveryMode) {
+      addressString = [
+        `${addressForm.street.trim()}, ${addressForm.postcode.trim()} ${addressForm.city.trim()}`,
+        addressForm.notes.trim(),
+      ].filter(Boolean).join("\n");
+      setCheckingDelivery(true);
+      setDeliveryError("");
+      const res = await checkDeliveryAddress(addressForm);
+      setCheckingDelivery(false);
+      if (res.status !== "ok") {
+        setDeliveryError(res.message);
+        return;
+      }
+      deliveryKm = res.km;
+      deliveryFee = res.fee;
+    }
+
     const items = Object.entries(cart).filter(([, v]) => v.qty > 0);
-    const total = items.reduce((sum, [id, v]) => {
+    const itemsTotal = items.reduce((sum, [id, v]) => {
       const formula = FORMULAS.find((f) => f.id === id);
       return sum + formula.price * v.qty;
     }, 0);
+    const total = itemsTotal + deliveryFee;
     const lines = items.map(([id, v]) => {
       const formula = FORMULAS.find((f) => f.id === id);
       return `${v.qty}× ${formula.name}`;
     });
+    if (deliveryMode) {
+      lines.push(deliveryFee > 0 ? `Livraison (${deliveryKm} km) : ${deliveryFee.toFixed(2)} €` : "Livraison offerte (Bessens)");
+    }
 
     const order = {
       id: Math.random().toString(36).slice(2, 8).toUpperCase(),
@@ -1680,7 +1841,9 @@ export default function App() {
       firstName: firstName.trim(),
       phone: phone.trim(),
       delivery: deliveryMode,
-      address: deliveryMode ? address.trim() : "",
+      address: addressString,
+      deliveryKm,
+      deliveryFee,
       paid: false,
       createdAt: new Date().toISOString(),
     };
@@ -1719,7 +1882,8 @@ export default function App() {
     setPhone("");
     setFirstName("");
     setDeliveryMode(false);
-    setAddress("");
+    setAddressForm({ street: "", postcode: "", city: "", notes: "" });
+    setDeliveryError("");
     setLastOrder(null);
     setStep("daypicker");
   };
@@ -1902,9 +2066,12 @@ export default function App() {
           boxInCart={boxInCart}
           loadingCapacity={loadingCapacity}
           deliveryMode={deliveryMode}
-          onToggleDelivery={setDeliveryMode}
-          address={address}
-          onAddressChange={setAddress}
+          onToggleDelivery={(v) => { setDeliveryMode(v); setDeliveryError(""); }}
+          addressForm={addressForm}
+          onAddressFormChange={(f) => { setAddressForm(f); setDeliveryError(""); }}
+          deliveryError={deliveryError}
+          checkingDelivery={checkingDelivery}
+          deliveryInfo={deliveryInfo}
         />
       )}
 
