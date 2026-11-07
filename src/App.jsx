@@ -126,6 +126,23 @@ const FORMULAS = [
   },
 ];
 
+// Options ajoutables à la commande (en plus des box)
+const OPTIONS = [
+  { id: "wrap", name: "Wrap poulet bacon", price: 1.5 },
+  { id: "burger", name: "Burger", price: 2 },
+  { id: "jus", name: "Jus d'orange sans pulpe 150 ml", price: 2 },
+  { id: "cookie", name: "Cookie", price: 1 },
+  { id: "pancake", name: "Pancake", price: 0.5 },
+  { id: "dessert", name: "Dessert MGMR", price: 2 },
+  { id: "pain", name: "P'tit pain", price: 0.5 },
+  { id: "charcuterie", name: "Portion charcuterie", price: 2.5 },
+  { id: "fromage", name: "Portion fromage", price: 2.5 },
+];
+
+function optionsTotal(extras) {
+  return OPTIONS.reduce((sum, o) => sum + o.price * (extras[o.id] || 0), 0);
+}
+
 const STORAGE_KEY = "weekly-menu-content";
 const BLOCKED_DATES_KEY = "blocked-dates"; // anciennement blocked-sundays
 const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... }
@@ -1125,12 +1142,12 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
 // ---------------------------------------------------------------------------
 // Écran Panier
 // ---------------------------------------------------------------------------
-function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, onBack, onAdd, onRemove, onNext }) {
+function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, onBack, onAdd, onRemove, onNext, extras, onAddExtra, onRemoveExtra }) {
   const items = Object.entries(cart).filter(([, v]) => v.qty > 0);
   const total = items.reduce((sum, [id, v]) => {
     const formula = FORMULAS.find((f) => f.id === id);
     return sum + formula.price * v.qty;
-  }, 0);
+  }, 0) + optionsTotal(extras);
   const phoneValid = phone.trim().replace(/\s/g, "").length >= 10;
   const nameValid = firstName.trim().length >= 2;
   const canContinue = phoneValid && nameValid;
@@ -1183,6 +1200,42 @@ function CartScreen({ cart, firstName, onFirstNameChange, phone, onPhoneChange, 
 
         {items.length > 0 && (
           <>
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+              <p className="text-xs uppercase tracking-wide text-[#5B6B4F] mb-3">Options à ajouter</p>
+              <div className="flex flex-col gap-3">
+                {OPTIONS.map((o) => {
+                  const q = extras[o.id] || 0;
+                  return (
+                    <div key={o.id} className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-[#3E2F22]">{o.name}</p>
+                        <p className="text-xs text-[#C97B63] font-medium">{o.price.toFixed(2)} €</p>
+                      </div>
+                      {q === 0 ? (
+                        <button
+                          onClick={() => onAddExtra(o.id)}
+                          className="shrink-0 w-8 h-8 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition"
+                          aria-label={`Ajouter ${o.name}`}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
+                          <button onClick={() => onRemoveExtra(o.id)} className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95">
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{q}</span>
+                          <button onClick={() => onAddExtra(o.id)} className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between px-1 mt-1">
               <span className="text-sm text-[#3E2F22]/70">Total</span>
               <span className="text-lg text-[#3E2F22] font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>
@@ -1433,7 +1486,7 @@ function ConfirmScreen({ order, onNewOrder }) {
   const total = items.reduce((sum, [id, v]) => {
     const formula = FORMULAS.find((f) => f.id === id);
     return sum + formula.price * v.qty;
-  }, 0) + (order.deliveryFee || 0);
+  }, 0) + (order.extrasTotal || 0) + (order.deliveryFee || 0);
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] flex flex-col items-center px-5 pt-12 pb-10">
@@ -1495,6 +1548,12 @@ function ConfirmScreen({ order, onNewOrder }) {
               </div>
             );
           })}
+          {(order.extras || []).map((e) => (
+            <div key={e.id} className="flex items-start justify-between gap-2">
+              <span className="text-sm text-[#3E2F22] font-medium">{e.qty}× {e.name}</span>
+              <span className="text-sm text-[#3E2F22]/70 shrink-0">{(e.price * e.qty).toFixed(2)} €</span>
+            </div>
+          ))}
           {order.delivery && (
             <div className="flex items-start justify-between gap-2">
               <span className="text-sm text-[#3E2F22] font-medium">Livraison</span>
@@ -1686,6 +1745,7 @@ export default function App() {
   const [deliveryError, setDeliveryError] = useState("");
   const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [deliveryInfo, setDeliveryInfo] = useState(null);
+  const [extras, setExtras] = useState({});
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
@@ -1743,6 +1803,22 @@ export default function App() {
 
   const handleAdd = (id) => {
     setCart((prev) => ({ ...prev, [id]: { qty: (prev[id]?.qty || 0) + 1 } }));
+  };
+
+  const handleAddExtra = (id) => {
+    setExtras((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
+  };
+
+  const handleRemoveExtra = (id) => {
+    setExtras((prev) => {
+      const current = prev[id] || 0;
+      if (current <= 1) {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return { ...prev, [id]: current - 1 };
+    });
   };
 
   const handleRemove = (id) => {
@@ -1820,11 +1896,16 @@ export default function App() {
       const formula = FORMULAS.find((f) => f.id === id);
       return sum + formula.price * v.qty;
     }, 0);
-    const total = itemsTotal + deliveryFee;
+    const extraEntries = OPTIONS
+      .filter((o) => (extras[o.id] || 0) > 0)
+      .map((o) => ({ id: o.id, name: o.name, price: o.price, qty: extras[o.id] }));
+    const extrasTotal = extraEntries.reduce((s, e) => s + e.price * e.qty, 0);
+    const total = itemsTotal + extrasTotal + deliveryFee;
     const lines = items.map(([id, v]) => {
       const formula = FORMULAS.find((f) => f.id === id);
       return `${v.qty}× ${formula.name}`;
     });
+    extraEntries.forEach((e) => lines.push(`${e.qty}× ${e.name} : ${(e.price * e.qty).toFixed(2)} €`));
     if (deliveryMode) {
       lines.push(deliveryFee > 0 ? `Livraison (${deliveryKm} km) : ${deliveryFee.toFixed(2)} €` : "Livraison offerte (Bessens)");
     }
@@ -1844,6 +1925,8 @@ export default function App() {
       address: addressString,
       deliveryKm,
       deliveryFee,
+      extras: extraEntries,
+      extrasTotal,
       paid: false,
       createdAt: new Date().toISOString(),
     };
@@ -1877,6 +1960,7 @@ export default function App() {
 
   const handleNewOrder = () => {
     setCart({});
+    setExtras({});
     setSelectedSlot(null);
     setSelectedDay(null);
     setPhone("");
@@ -1983,7 +2067,7 @@ export default function App() {
         <DayPickerScreen
           onSelectDay={(day) => {
             if (day === "devis") { setStep("devis"); return; }
-            setSelectedDay(day); setCart({}); setStep("menu");
+            setSelectedDay(day); setCart({}); setExtras({}); setStep("menu");
           }}
           schedule={schedule}
           blockedDates={blockedDates}
@@ -2050,6 +2134,9 @@ export default function App() {
           onBack={() => setStep("menu")}
           onAdd={handleAdd}
           onRemove={handleRemove}
+          extras={extras}
+          onAddExtra={handleAddExtra}
+          onRemoveExtra={handleRemoveExtra}
           onNext={() => { setStep("slot"); loadDayCapacity(); }}
         />
       )}
