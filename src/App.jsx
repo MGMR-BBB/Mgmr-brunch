@@ -60,7 +60,7 @@ const FORMULAS = [
   },
   {
     id: "duo",
-    name: "Box 2 personnes",
+    name: "Box brunch 2 personnes",
     price: 30,
     people: "2 personnes",
     emoji: "🫶",
@@ -143,6 +143,64 @@ function optionsTotal(extras) {
   return OPTIONS.reduce((sum, o) => sum + o.price * (extras[o.id] || 0), 0);
 }
 
+// ---------------------------------------------------------------------------
+// Batch cooking : réservable le lundi, retrait ou livraison entre 17h et 18h30
+// ---------------------------------------------------------------------------
+const BATCH_SLOTS = ["17h00", "17h15", "17h30", "17h45", "18h00", "18h15", "18h30"];
+const BATCH_WINDOW_LABEL = "17h00–18h30";
+
+const BATCH_GROUPS = [
+  {
+    title: "Formule midi",
+    note: "5 gamelles individuelles / semaine",
+    options: [{ id: "midi", label: "5 gamelles individuelles", price: 59 }],
+  },
+  {
+    title: "Formule soir",
+    note: "5 repas par semaine",
+    options: [
+      { id: "soir-solo", label: "Solo (1 personne)", price: 69 },
+      { id: "soir-duo", label: "Duo (2 personnes)", price: 109 },
+      { id: "soir-trio", label: "Trio (3 personnes)", price: 139 },
+      { id: "soir-famille", label: "Famille (4 personnes)", price: 169 },
+      { id: "soir-grande", label: "Grande famille (5 personnes)", price: 209 },
+    ],
+  },
+  {
+    title: "Formule complète",
+    note: "midi + soir",
+    options: [
+      { id: "full-solo", label: "Solo (1 personne)", price: 125 },
+      { id: "full-duo", label: "Duo (2 personnes)", price: 165 },
+      { id: "full-trio", label: "Trio (3 personnes)", price: 195 },
+      { id: "full-famille", label: "Famille (4 personnes)", price: 225 },
+      { id: "full-grande", label: "Grande famille (5 personnes)", price: 265 },
+    ],
+  },
+];
+
+const BATCH_DISHES = [
+  "Burger MGMR",
+  "Wrap poulet",
+  "Poulet coco-curry",
+  "Lasagnes bolognaise",
+  "Poulet rôti aux herbes",
+  "Pâtes au saumon",
+  "Boulettes de bœuf",
+  "Quiche lorraine",
+  "Blanquette de poulet",
+  "Hachis parmentier",
+  "Salade poulet",
+  "Gratin de pâtes jambon-fromage",
+  "Saucisse lentilles",
+  "Croque-monsieur",
+  "Croque-monsieur aux brocolis",
+  "Quiche aux poireaux",
+  "Poké bowl saumon",
+  "Poké bowl crevettes",
+  "Butternut farci",
+];
+
 const STORAGE_KEY = "weekly-menu-content";
 const BLOCKED_DATES_KEY = "blocked-dates"; // anciennement blocked-sundays
 const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... }
@@ -167,6 +225,28 @@ function deliveryFeeFor(km, city) {
 
 function isAddressValid(f) {
   return f.street.trim().length >= 3 && /^\d{5}$/.test(f.postcode.trim()) && f.city.trim().length >= 2;
+}
+
+// Vérifie l'adresse (distance + frais) pendant la saisie
+function useDeliveryCheck(deliveryMode, addressForm) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    if (!deliveryMode || !isAddressValid(addressForm)) {
+      setInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setInfo({ status: "checking" });
+    const t = setTimeout(async () => {
+      const res = await checkDeliveryAddress(addressForm);
+      if (!cancelled) setInfo(res);
+    }, 700);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [deliveryMode, addressForm]);
+  return info;
 }
 
 function haversineKm(a, b) {
@@ -360,7 +440,7 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 // Écran Choix du jour : jours de retrait ouverts par l'admin
 // ---------------------------------------------------------------------------
-function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin }) {
+function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin, batchDate }) {
   const activeDays = useMemo(
     () => getScheduleWithDates(schedule, blockedDates, openDates),
     [schedule, blockedDates, openDates]
@@ -428,6 +508,28 @@ function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpe
         ))}
 
         <div className="mt-2 border-t border-dashed border-[#3E2F22]/10 pt-4">
+          <button
+            onClick={() => onSelectDay("batch")}
+            className="w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition mb-3"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
+                🍱
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                  Batch cooking
+                </p>
+                <p className="text-sm text-[#C97B63] font-medium">
+                  {formatDayLabel(batchDate.date)}
+                </p>
+                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                  Repas de la semaine · {BATCH_WINDOW_LABEL} · à emporter ou livré
+                </p>
+              </div>
+              <span className="text-[#C97B63] text-lg">→</span>
+            </div>
+          </button>
           <button
             onClick={() => onSelectDay("devis")}
             className="w-full bg-[#5B6B4F]/10 rounded-2xl p-5 text-left active:scale-[0.98] transition border border-[#5B6B4F]/20"
@@ -1486,7 +1588,7 @@ function ConfirmScreen({ order, onNewOrder }) {
   const total = items.reduce((sum, [id, v]) => {
     const formula = FORMULAS.find((f) => f.id === id);
     return sum + formula.price * v.qty;
-  }, 0) + (order.extrasTotal || 0) + (order.deliveryFee || 0);
+  }, 0) + (order.batch?.price || 0) + (order.extrasTotal || 0) + (order.deliveryFee || 0);
 
   return (
     <div className="min-h-screen bg-[#FBF3E7] flex flex-col items-center px-5 pt-12 pb-10">
@@ -1548,6 +1650,12 @@ function ConfirmScreen({ order, onNewOrder }) {
               </div>
             );
           })}
+          {order.batch && (
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-sm text-[#3E2F22] font-medium">{order.batch.label}</span>
+              <span className="text-sm text-[#3E2F22]/70 shrink-0">{order.batch.price.toFixed(2)} €</span>
+            </div>
+          )}
           {(order.extras || []).map((e) => (
             <div key={e.id} className="flex items-start justify-between gap-2">
               <span className="text-sm text-[#3E2F22] font-medium">{e.qty}× {e.name}</span>
@@ -1576,8 +1684,8 @@ function ConfirmScreen({ order, onNewOrder }) {
         Numéro de commande : {order.id}
         <br />
         {order.delivery
-          ? "Votre box vous sera livrée à l'adresse indiquée."
-          : "Présentez-vous à l'heure indiquée, votre box vous attendra."}
+          ? `${order.batch ? "Vos repas vous seront livrés" : "Votre box vous sera livrée"} à l'adresse indiquée.`
+          : `Présentez-vous à l'heure indiquée, ${order.batch ? "vos repas vous attendront" : "votre box vous attendra"}.`}
       </p>
 
       <button onClick={onNewOrder} className="mt-8 text-sm text-[#5B6B4F] underline underline-offset-2">
@@ -1729,6 +1837,269 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
 }
 
 // ---------------------------------------------------------------------------
+// Écran Batch cooking
+// ---------------------------------------------------------------------------
+function BatchScreen({ onBack, batchDate, onConfirm }) {
+  const [formulaId, setFormulaId] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [deliveryMode, setDeliveryMode] = useState(false);
+  const [slot, setSlot] = useState(null);
+  const [addressForm, setAddressForm] = useState({ street: "", postcode: "", city: "", notes: "" });
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const deliveryInfo = useDeliveryCheck(deliveryMode, addressForm);
+
+  const allOptions = useMemo(
+    () => BATCH_GROUPS.flatMap((g) => g.options.map((o) => ({ ...o, group: g.title }))),
+    []
+  );
+  const formula = allOptions.find((o) => o.id === formulaId) || null;
+  const fee = deliveryMode && deliveryInfo?.status === "ok" ? deliveryInfo.fee : 0;
+  const total = formula ? formula.price + fee : 0;
+
+  const phoneValid = phone.trim().replace(/\s/g, "").length >= 10;
+  const nameValid = firstName.trim().length >= 2;
+  const addressOk = !deliveryMode || isAddressValid(addressForm);
+  const slotOk = deliveryMode || !!slot;
+  const blocked = deliveryMode && ["checking", "toofar", "notfound"].includes(deliveryInfo?.status);
+  const canSubmit = !!formula && nameValid && phoneValid && addressOk && slotOk && !blocked && !submitting;
+
+  const setField = (k, v) => {
+    setAddressForm((f) => ({ ...f, [k]: v }));
+    setError("");
+  };
+
+  const inputCls = "w-full text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40";
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError("");
+    let deliveryKm = null;
+    let deliveryFee = 0;
+    let addressString = "";
+    if (deliveryMode) {
+      addressString = [
+        `${addressForm.street.trim()}, ${addressForm.postcode.trim()} ${addressForm.city.trim()}`,
+        addressForm.notes.trim(),
+      ].filter(Boolean).join("\n");
+      const res = await checkDeliveryAddress(addressForm);
+      if (res.status !== "ok") {
+        setError(res.message);
+        setSubmitting(false);
+        return;
+      }
+      deliveryKm = res.km;
+      deliveryFee = res.fee;
+    }
+    await onConfirm({
+      formula,
+      notes: notes.trim(),
+      firstName: firstName.trim(),
+      phone: phone.trim(),
+      delivery: deliveryMode,
+      slot: deliveryMode ? "" : slot,
+      address: addressString,
+      deliveryKm,
+      deliveryFee,
+    });
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FBF3E7] pb-32">
+      <header className="px-5 pt-6 pb-4 flex items-center gap-3">
+        <button onClick={onBack} className="w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-sm" aria-label="Retour">
+          <ArrowLeft className="w-4 h-4 text-[#3E2F22]" />
+        </button>
+        <div>
+          <h2 className="text-lg text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+            Batch cooking
+          </h2>
+          <p className="text-xs text-[#3E2F22]/50">
+            {formatDayLabel(batchDate.date)} · {BATCH_WINDOW_LABEL}
+          </p>
+        </div>
+      </header>
+
+      <main className="px-5 flex flex-col gap-4">
+        <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F]">
+          Vos repas de la semaine, préparés maison. Retrait ou livraison le lundi entre 17h00 et 18h30.
+        </div>
+
+        {BATCH_GROUPS.map((group) => (
+          <div key={group.title} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+            <h3 className="text-sm text-[#3E2F22] font-semibold" style={{ fontFamily: "'Fraunces', serif" }}>
+              {group.title}
+            </h3>
+            <p className="text-xs text-[#3E2F22]/50 mb-3">{group.note}</p>
+            <div className="flex flex-col gap-2">
+              {group.options.map((o) => {
+                const selected = formulaId === o.id;
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => setFormulaId(o.id)}
+                    className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition active:scale-[0.98] ${
+                      selected
+                        ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
+                        : "bg-[#FBF3E7] text-[#3E2F22] border-transparent"
+                    }`}
+                  >
+                    <span className="text-left">{o.label}</span>
+                    <span className={`font-semibold ${selected ? "text-white" : "text-[#C97B63]"}`}>{o.price} €</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
+            Les plats
+          </h3>
+          <ol className="grid grid-cols-1 gap-1">
+            {BATCH_DISHES.map((d, i) => (
+              <li key={d} className="text-xs text-[#3E2F22]/70 flex gap-2">
+                <span className="text-[#C97B63] w-5 shrink-0 text-right">{i + 1}.</span>
+                <span>{d}</span>
+              </li>
+            ))}
+          </ol>
+          <label className="block text-xs uppercase tracking-wide text-[#5B6B4F] mt-4 mb-2">
+            Vos plats souhaités / remarques (facultatif)
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Ex : 2 lasagnes, 1 poulet coco-curry… ou allergies"
+            className={`${inputCls} resize-none`}
+          />
+        </div>
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <label className="block text-xs uppercase tracking-wide text-[#5B6B4F] mb-2">Votre prénom</label>
+          <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Camille" className={inputCls} />
+          <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#5B6B4F] mt-4 mb-2">
+            <Phone className="w-3.5 h-3.5" />
+            Votre numéro de téléphone
+          </label>
+          <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="06 12 34 56 78" className={inputCls} />
+          <p className="text-[11px] text-[#3E2F22]/45 mt-1.5">On vous envoie le lien de paiement par SMS ou WhatsApp.</p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <button
+              onClick={() => { setDeliveryMode(false); setError(""); }}
+              className={`flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-medium border transition ${
+                !deliveryMode ? "bg-[#5B6B4F] text-white border-[#5B6B4F]" : "bg-[#FBF3E7] text-[#3E2F22] border-transparent"
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4" />
+              À emporter
+            </button>
+            <button
+              onClick={() => { setDeliveryMode(true); setError(""); }}
+              className={`flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-medium border transition ${
+                deliveryMode ? "bg-[#5B6B4F] text-white border-[#5B6B4F]" : "bg-[#FBF3E7] text-[#3E2F22] border-transparent"
+              }`}
+            >
+              <Truck className="w-4 h-4" />
+              Livraison
+            </button>
+          </div>
+
+          {!deliveryMode ? (
+            <>
+              <p className="text-xs text-[#5B6B4F] mb-3">Heure de retrait · {BATCH_WINDOW_LABEL}</p>
+              <div className="grid grid-cols-3 gap-2.5">
+                {BATCH_SLOTS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSlot(s)}
+                    className={`rounded-xl py-3 text-sm font-medium border transition ${
+                      slot === s
+                        ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
+                        : "bg-white text-[#3E2F22] border-[#3E2F22]/10 active:scale-95"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-[#5B6B4F] mb-3">Livraison le lundi entre 17h00 et 18h30 (pas d'heure à choisir).</p>
+              <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-[#5B6B4F] mb-2">
+                <MapPin className="w-3.5 h-3.5" />
+                Adresse de livraison
+              </label>
+              <div className="flex flex-col gap-2">
+                <input type="text" value={addressForm.street} onChange={(e) => setField("street", e.target.value)} placeholder="N° et nom de rue" className={inputCls} />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={5}
+                    value={addressForm.postcode}
+                    onChange={(e) => setField("postcode", e.target.value.replace(/\D/g, ""))}
+                    placeholder="Code postal"
+                    className="w-28 shrink-0 text-sm text-[#3E2F22] bg-[#FBF3E7] rounded-xl px-3 py-2.5 outline-none border border-transparent focus:border-[#C97B63]/40"
+                  />
+                  <input type="text" value={addressForm.city} onChange={(e) => setField("city", e.target.value)} placeholder="Ville" className={inputCls} />
+                </div>
+                <input type="text" value={addressForm.notes} onChange={(e) => setField("notes", e.target.value)} placeholder="Étage, digicode… (facultatif)" className={inputCls} />
+              </div>
+              <p className="text-[11px] text-[#3E2F22]/45 mt-2">
+                Offerte à Bessens · {DELIVERY_FEE_NEAR} € jusqu'à {DELIVERY_NEAR_KM} km · {DELIVERY_FEE_FAR} € de {DELIVERY_NEAR_KM} à {DELIVERY_MAX_KM} km.
+              </p>
+              {deliveryInfo?.status === "checking" && (
+                <p className="text-xs text-[#3E2F22]/50 mt-2">Calcul des frais de livraison…</p>
+              )}
+              {deliveryInfo?.status === "ok" && !error && (
+                <div className="mt-2 bg-[#5B6B4F]/10 rounded-lg px-3 py-2 text-xs text-[#5B6B4F] font-medium">
+                  {deliveryInfo.fee > 0
+                    ? `Frais de livraison : ${deliveryInfo.fee.toFixed(2)} € (${Math.round(deliveryInfo.km)} km)`
+                    : "Livraison offerte à Bessens 🎉"}
+                </div>
+              )}
+              {(error || (deliveryInfo && deliveryInfo.status !== "ok" && deliveryInfo.status !== "checking")) && (
+                <p className="text-xs text-red-500 mt-2">{error || deliveryInfo.message}</p>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+
+      <div className="fixed bottom-5 left-0 right-0 px-5">
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="w-full max-w-md mx-auto flex items-center justify-center gap-2 bg-[#C97B63] text-white rounded-full py-3.5 shadow-lg active:scale-[0.98] transition disabled:opacity-40 disabled:active:scale-100"
+        >
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+          <span className="text-sm font-semibold">
+            {submitting
+              ? "Envoi en cours…"
+              : formula
+              ? `Réserver · ${total.toFixed(2)} €`
+              : "Choisissez une formule"}
+          </span>
+        </button>
+        {formula && (!nameValid || !phoneValid) && (
+          <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Entrez votre prénom et votre numéro pour continuer</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // App racine
 // ---------------------------------------------------------------------------
 export default function App() {
@@ -1746,6 +2117,7 @@ export default function App() {
   const [checkingDelivery, setCheckingDelivery] = useState(false);
   const [deliveryInfo, setDeliveryInfo] = useState(null);
   const [extras, setExtras] = useState({});
+  const batchDate = useMemo(() => getNextDateForDay(1, blockedDates), [blockedDates]);
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
@@ -1958,6 +2330,62 @@ export default function App() {
     setStep("confirm");
   };
 
+  const handleConfirmBatch = async (b) => {
+    const nd = batchDate;
+    const dayLabelBatch = formatDayLabel(nd.date);
+    const formulaLabel = `Batch cooking · ${b.formula.group} – ${b.formula.label}`;
+    const total = b.formula.price + (b.deliveryFee || 0);
+    const lines = [`${formulaLabel} : ${b.formula.price.toFixed(2)} €`];
+    if (b.notes) lines.push(`Plats souhaités : ${b.notes}`);
+    if (b.delivery) {
+      lines.push(b.deliveryFee > 0 ? `Livraison (${b.deliveryKm} km) : ${b.deliveryFee.toFixed(2)} €` : "Livraison offerte (Bessens)");
+    }
+    const order = {
+      id: Math.random().toString(36).slice(2, 8).toUpperCase(),
+      kind: "batch",
+      cart: {},
+      lines,
+      total,
+      slot: b.delivery ? BATCH_WINDOW_LABEL : b.slot,
+      dayIso: nd.iso,
+      dayLabel: dayLabelBatch,
+      dayKey: "batch",
+      firstName: b.firstName,
+      phone: b.phone,
+      delivery: b.delivery,
+      address: b.address,
+      deliveryKm: b.deliveryKm,
+      deliveryFee: b.deliveryFee || 0,
+      extras: [],
+      extrasTotal: 0,
+      batch: { label: formulaLabel, price: b.formula.price },
+      paid: false,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await window.storage.set(`order:${order.id}`, JSON.stringify(order), true);
+    } catch (e) {
+      console.error("Impossible d'enregistrer la commande", e);
+    }
+    try {
+      await fetch(`https://ntfy.sh/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: NTFY_TOPIC,
+          title: `Nouvelle réservation BATCH COOKING - ${order.total.toFixed(2)} EUR`,
+          message: `${order.firstName || "Client"} - ${order.phone}\n${order.lines.join("\n")}\n${order.delivery ? "Livraison" : "Retrait"} : ${order.dayLabel} ${order.slot}${order.delivery ? `\nAdresse : ${order.address}` : ""}`,
+          priority: 5,
+          tags: ["bento"],
+        }),
+      });
+    } catch (e) {
+      console.error("Notification push non envoyée", e);
+    }
+    setLastOrder(order);
+    setStep("confirm");
+  };
+
   const handleNewOrder = () => {
     setCart({});
     setExtras({});
@@ -2067,13 +2495,19 @@ export default function App() {
         <DayPickerScreen
           onSelectDay={(day) => {
             if (day === "devis") { setStep("devis"); return; }
+            if (day === "batch") { setStep("batch"); return; }
             setSelectedDay(day); setCart({}); setExtras({}); setStep("menu");
           }}
           schedule={schedule}
           blockedDates={blockedDates}
           openDates={openDates}
+          batchDate={batchDate}
           onOpenAdmin={() => setStep("pin")}
         />
+      )}
+
+      {step === "batch" && (
+        <BatchScreen onBack={() => setStep("daypicker")} batchDate={batchDate} onConfirm={handleConfirmBatch} />
       )}
 
       {step === "devis" && (
