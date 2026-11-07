@@ -60,7 +60,7 @@ const FORMULAS = [
   },
   {
     id: "duo",
-    name: "Box brunch 2 personnes",
+    name: "Box 2 personnes",
     price: 30,
     people: "2 personnes",
     emoji: "🫶",
@@ -78,7 +78,7 @@ const FORMULAS = [
     id: "bigbrunch",
     name: "BigBox Brunch",
     price: 43,
-    people: "3 personnes",
+    people: "4 personnes",
     emoji: "🥞",
     defaultItems: [
       "Bagels garnis",
@@ -93,8 +93,8 @@ const FORMULAS = [
   {
     id: "apero",
     name: "Box Apéro",
-    price: 30,
-    people: "2 personnes",
+    price: 28,
+    people: "2-3 personnes",
     emoji: "🥳",
     defaultItems: [
       "Charcuterie : jambon, rosette, chorizo",
@@ -111,7 +111,7 @@ const FORMULAS = [
     id: "bigbox",
     name: "BigBox Apéro",
     price: 43,
-    people: "3 personnes",
+    people: "4 personnes",
     emoji: "🔥",
     defaultItems: [
       "Mini burgers",
