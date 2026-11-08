@@ -1869,7 +1869,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
 function BatchScreen({ onBack, batchDate, onConfirm }) {
   const [formulaId, setFormulaId] = useState(null);
   const [notes, setNotes] = useState("");
-  const [dishQty, setDishQty] = useState({});
+  const [dishQty, setDishQty] = useState({ midi: {}, soir: {} });
   const [firstName, setFirstName] = useState("");
   const [phone, setPhone] = useState("");
   const [deliveryMode, setDeliveryMode] = useState(false);
@@ -1886,18 +1886,21 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
   const formula = allOptions.find((o) => o.id === formulaId) || null;
   const fee = deliveryMode && deliveryInfo?.status === "ok" ? deliveryInfo.fee : 0;
   const total = formula ? formula.price + fee : 0;
-  const mealsNeeded = formula?.meals || 0;
-  const dishesCount = Object.values(dishQty).reduce((a, b) => a + b, 0);
-  const dishesOk = mealsNeeded > 0 && dishesCount === mealsNeeded;
-  const addDish = (d) => {
-    if (dishesCount >= mealsNeeded) return;
-    setDishQty((prev) => ({ ...prev, [d]: (prev[d] || 0) + 1 }));
+  const MEALS_PER_PART = 5;
+  const PART_LABEL = { midi: "Repas du midi", soir: "Repas du soir" };
+  const parts = !formula ? [] : formula.id === "midi" ? ["midi"] : formula.id.startsWith("soir-") ? ["soir"] : ["midi", "soir"];
+  const countOf = (part) => Object.values(dishQty[part] || {}).reduce((a, b) => a + b, 0);
+  const dishesOk = parts.length > 0 && parts.every((pt) => countOf(pt) === MEALS_PER_PART);
+  const addDish = (part, d) => {
+    if (countOf(part) >= MEALS_PER_PART) return;
+    setDishQty((prev) => ({ ...prev, [part]: { ...prev[part], [d]: (prev[part][d] || 0) + 1 } }));
   };
-  const removeDish = (d) => {
+  const removeDish = (part, d) => {
     setDishQty((prev) => {
-      const q = prev[d] || 0;
-      if (q <= 1) { const next = { ...prev }; delete next[d]; return next; }
-      return { ...prev, [d]: q - 1 };
+      const q = prev[part][d] || 0;
+      const nextPart = { ...prev[part] };
+      if (q <= 1) delete nextPart[d]; else nextPart[d] = q - 1;
+      return { ...prev, [part]: nextPart };
     });
   };
 
@@ -1937,7 +1940,11 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
     }
     await onConfirm({
       formula,
-      dishes: Object.entries(dishQty).filter(([, q]) => q > 0).map(([name, qty]) => ({ name, qty })),
+      dishes: parts.map((pt) => ({
+        part: pt,
+        label: PART_LABEL[pt],
+        items: Object.entries(dishQty[pt] || {}).filter(([, q]) => q > 0).map(([name, qty]) => ({ name, qty })),
+      })),
       notes: notes.trim(),
       firstName: firstName.trim(),
       phone: phone.trim(),
@@ -1983,7 +1990,7 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
                 return (
                   <button
                     key={o.id}
-                    onClick={() => { if (formulaId !== o.id) { setFormulaId(o.id); setDishQty({}); } }}
+                    onClick={() => { if (formulaId !== o.id) { setFormulaId(o.id); setDishQty({ midi: {}, soir: {} }); } }}
                     className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition active:scale-[0.98] ${
                       selected
                         ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
@@ -2003,46 +2010,57 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
             Choisissez vos plats
           </h3>
-          <p className="text-xs text-[#5B6B4F] mb-3">
-            {formula
-              ? `${dishesCount} / ${mealsNeeded} plats choisis (vous pouvez prendre le même plat plusieurs fois)`
-              : "Choisissez d'abord une formule ci-dessus"}
-          </p>
-          <div className="flex flex-col gap-2">
-            {BATCH_DISHES.map((d) => {
-              const q = dishQty[d] || 0;
-              const full = !formula || dishesCount >= mealsNeeded;
-              return (
-                <div key={d} className="flex items-center gap-3">
-                  <span className={`flex-1 text-sm ${q > 0 ? "text-[#3E2F22] font-medium" : "text-[#3E2F22]/70"}`}>{d}</span>
-                  {q === 0 ? (
-                    <button
-                      disabled={full}
-                      onClick={() => addDish(d)}
-                      className="shrink-0 w-8 h-8 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition disabled:opacity-30"
-                      aria-label={`Ajouter ${d}`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
-                      <button onClick={() => removeDish(d)} className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95">
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{q}</span>
-                      <button
-                        disabled={full}
-                        onClick={() => addDish(d)}
-                        className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 disabled:opacity-30"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
+          {parts.length === 0 && (
+            <p className="text-xs text-[#5B6B4F] mb-3">Choisissez d'abord une formule ci-dessus</p>
+          )}
+          {parts.map((part) => {
+            const count = countOf(part);
+            const full = count >= MEALS_PER_PART;
+            return (
+              <div key={part} className="mb-5">
+                <div className="flex items-center justify-between mb-2 pb-2 border-b border-dashed border-[#3E2F22]/10">
+                  <p className="text-xs uppercase tracking-wide text-[#5B6B4F] font-medium">{PART_LABEL[part]}</p>
+                  <span className={`text-xs font-semibold ${full ? "text-[#5B6B4F]" : "text-[#C97B63]"}`}>
+                    {count} / {MEALS_PER_PART} plats
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+                <div className="flex flex-col gap-2">
+                  {BATCH_DISHES.map((d) => {
+                    const q = (dishQty[part] || {})[d] || 0;
+                    return (
+                      <div key={d} className="flex items-center gap-3">
+                        <span className={`flex-1 text-sm ${q > 0 ? "text-[#3E2F22] font-medium" : "text-[#3E2F22]/70"}`}>{d}</span>
+                        {q === 0 ? (
+                          <button
+                            disabled={full}
+                            onClick={() => addDish(part, d)}
+                            className="shrink-0 w-8 h-8 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition disabled:opacity-30"
+                            aria-label={`Ajouter ${d}`}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
+                            <button onClick={() => removeDish(part, d)} className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95">
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{q}</span>
+                            <button
+                              disabled={full}
+                              onClick={() => addDish(part, d)}
+                              className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 disabled:opacity-30"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
           <label className="block text-xs uppercase tracking-wide text-[#5B6B4F] mt-4 mb-2">
             Allergies / remarques (facultatif)
           </label>
@@ -2167,7 +2185,7 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
           </span>
         </button>
         {formula && !dishesOk && (
-          <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Choisissez {mealsNeeded} plats ({dishesCount}/{mealsNeeded})</p>
+          <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Choisissez vos plats : {parts.map((pt) => `${PART_LABEL[pt]} ${countOf(pt)}/${MEALS_PER_PART}`).join(" · ")}</p>
         )}
         {formula && dishesOk && (!nameValid || !phoneValid) && (
           <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Entrez votre prénom et votre numéro pour continuer</p>
@@ -2416,7 +2434,9 @@ function AppInner() {
     const formulaLabel = `Batch cooking · ${b.formula.group} – ${b.formula.label}`;
     const total = b.formula.price + (b.deliveryFee || 0);
     const lines = [`${formulaLabel} : ${b.formula.price.toFixed(2)} €`];
-    if (b.dishes?.length) lines.push(`Plats : ${b.dishes.map((x) => `${x.qty}× ${x.name}`).join(", ")}`);
+    (b.dishes || []).forEach((g) => {
+      if (g.items.length) lines.push(`${g.label} : ${g.items.map((x) => `${x.qty}× ${x.name}`).join(", ")}`);
+    });
     if (b.notes) lines.push(`Remarques : ${b.notes}`);
     if (b.delivery) {
       lines.push(b.deliveryFee > 0 ? `Livraison (${b.deliveryKm} km) : ${b.deliveryFee.toFixed(2)} €` : "Livraison offerte (Bessens)");
