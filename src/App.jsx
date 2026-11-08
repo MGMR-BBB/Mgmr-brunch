@@ -233,6 +233,8 @@ const BLOCKED_DATES_KEY = "blocked-dates"; // anciennement blocked-sundays
 const SCHEDULE_KEY = "week-schedule"; // { lundi: { active, slots }, mardi: ... }
 const OPEN_DATES_KEY = "open-dates"; // { "2026-11-07": "18h30, 18h45", ... } week-ends ouverts
 
+const BATCH_DATES_KEY = "batch-open-dates"; // ["2026-11-09", ...] lundis batch cooking ouverts
+
 const WEEKLY_BOX_LIMIT = 8;
 
 // Zone de livraison : 25 km (à vol d'oiseau) autour de Bessens (82170)
@@ -372,6 +374,20 @@ function getNextDateForDay(jsDay, blockedDates = []) {
   return { iso: fallback.toISOString().slice(0, 10), date: fallback };
 }
 
+// Prochains lundis (strictement dans le futur)
+function getUpcomingMondays(count = 8) {
+  const now = new Date();
+  const todayIso = toIso(now);
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0);
+  while (d.getDay() !== 1 || toIso(d) <= todayIso) d.setDate(d.getDate() + 1);
+  const res = [];
+  for (let i = 0; i < count; i++) {
+    res.push({ iso: toIso(d), date: new Date(d) });
+    d.setDate(d.getDate() + 7);
+  }
+  return res;
+}
+
 function formatDayLabel(date) {
   const formatted = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
@@ -467,7 +483,7 @@ function SectionEyebrow({ children }) {
 // ---------------------------------------------------------------------------
 // Écran Choix du jour : jours de retrait ouverts par l'admin
 // ---------------------------------------------------------------------------
-function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin, batchDate }) {
+function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin, batchDates }) {
   const activeDays = useMemo(
     () => getScheduleWithDates(schedule, blockedDates, openDates),
     [schedule, blockedDates, openDates]
@@ -535,28 +551,31 @@ function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpe
         ))}
 
         <div className="mt-2 border-t border-dashed border-[#3E2F22]/10 pt-4">
-          <button
-            onClick={() => onSelectDay("batch")}
-            className="w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition mb-3"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
-                🍱
+          {batchDates.length > 0 && (
+            <button
+              onClick={() => onSelectDay("batch")}
+              className="w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition mb-3"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
+                  🍱
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                    Batch cooking
+                  </p>
+                  <p className="text-sm text-[#C97B63] font-medium">
+                    {formatDayLabel(batchDates[0].date)}
+                    {batchDates.length > 1 ? ` · +${batchDates.length - 1} autre${batchDates.length > 2 ? "s" : ""} date${batchDates.length > 2 ? "s" : ""}` : ""}
+                  </p>
+                  <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                    Repas de la semaine · {BATCH_WINDOW_LABEL} · à emporter ou livré
+                  </p>
+                </div>
+                <span className="text-[#C97B63] text-lg">→</span>
               </div>
-              <div className="flex-1">
-                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  Batch cooking
-                </p>
-                <p className="text-sm text-[#C97B63] font-medium">
-                  {formatDayLabel(batchDate.date)}
-                </p>
-                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
-                  Repas de la semaine · {BATCH_WINDOW_LABEL} · à emporter ou livré
-                </p>
-              </div>
-              <span className="text-[#C97B63] text-lg">→</span>
-            </div>
-          </button>
+            </button>
+          )}
           <button
             onClick={() => onSelectDay("devis")}
             className="w-full bg-[#5B6B4F]/10 rounded-2xl p-5 text-left active:scale-[0.98] transition border border-[#5B6B4F]/20"
@@ -940,7 +959,7 @@ function PinScreen({ onBack, onSuccess }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : édition du contenu hebdomadaire (partagé)
 // ---------------------------------------------------------------------------
-function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates, onSaveBlocked, schedule, onSaveSchedule, openDates, onSaveOpenDates }) {
+function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates, onSaveBlocked, schedule, onSaveSchedule, openDates, onSaveOpenDates, batchOpenDates, onSaveBatchDates }) {
   const [draft, setDraft] = useState(() => {
     const initial = {};
     FORMULAS.forEach((f) => {
@@ -953,6 +972,12 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
   const [saved, setSaved] = useState(false);
   const [newBlockedDate, setNewBlockedDate] = useState("");
   const [monthOffset, setMonthOffset] = useState(0);
+  const mondays = useMemo(() => getUpcomingMondays(8), []);
+  const handleToggleBatch = (iso) => {
+    onSaveBatchDates(
+      batchOpenDates.includes(iso) ? batchOpenDates.filter((x) => x !== iso) : [...batchOpenDates, iso].sort()
+    );
+  };
 
   const weekend = useMemo(() => getWeekendDates(monthOffset), [monthOffset]);
   const monthLabel = useMemo(() => {
@@ -1162,6 +1187,33 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
               </div>
             </>
           )}
+        </div>
+
+        {/* Lundis batch cooking */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+          <h3 className="text-sm text-[#3E2F22] font-semibold mb-1" style={{ fontFamily: "'Fraunces', serif" }}>
+            🍱 Lundis batch cooking
+          </h3>
+          <p className="text-xs text-[#3E2F22]/50 mb-3">
+            Ouvre les lundis où tu proposes le batch cooking. Les lundis fermés ne sont pas visibles par les clients.
+          </p>
+          <div className="flex flex-col gap-2">
+            {mondays.map((m) => {
+              const isActive = batchOpenDates.includes(m.iso);
+              return (
+                <div key={m.iso} className="flex items-center justify-between border border-[#3E2F22]/8 rounded-xl px-3 py-2.5">
+                  <p className="text-sm text-[#3E2F22] font-medium">{formatDayLabel(m.date)}</p>
+                  <button
+                    onClick={() => handleToggleBatch(m.iso)}
+                    aria-label={`Ouvrir ou fermer ${formatDayLabel(m.date)}`}
+                    className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${isActive ? "bg-[#5B6B4F]" : "bg-[#3E2F22]/20"}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isActive ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Planning lundi → vendredi */}
@@ -1866,7 +1918,9 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
 // ---------------------------------------------------------------------------
 // Écran Batch cooking
 // ---------------------------------------------------------------------------
-function BatchScreen({ onBack, batchDate, onConfirm }) {
+function BatchScreen({ onBack, batchDates, onConfirm }) {
+  const [dateIso, setDateIso] = useState(batchDates[0]?.iso || "");
+  const batchDate = batchDates.find((x) => x.iso === dateIso) || batchDates[0];
   const [formulaId, setFormulaId] = useState(null);
   const [notes, setNotes] = useState("");
   const [dishQty, setDishQty] = useState({ midi: {}, soir: {} });
@@ -1940,6 +1994,7 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
     }
     await onConfirm({
       formula,
+      dateIso: batchDate.iso,
       dishes: parts.map((pt) => ({
         part: pt,
         label: PART_LABEL[pt],
@@ -1977,6 +2032,27 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
         <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F]">
           Vos repas de la semaine, préparés maison. Retrait ou livraison le lundi entre 17h00 et 18h30.
         </div>
+
+        {batchDates.length > 1 && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
+            <p className="text-xs uppercase tracking-wide text-[#5B6B4F] mb-3">Choisissez votre lundi</p>
+            <div className="flex flex-col gap-2">
+              {batchDates.map((x) => (
+                <button
+                  key={x.iso}
+                  onClick={() => setDateIso(x.iso)}
+                  className={`rounded-xl px-3 py-2.5 text-sm font-medium border transition active:scale-[0.98] ${
+                    batchDate.iso === x.iso
+                      ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
+                      : "bg-[#FBF3E7] text-[#3E2F22] border-transparent"
+                  }`}
+                >
+                  {formatDayLabel(x.date)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {BATCH_GROUPS.map((group) => (
           <div key={group.title} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
@@ -2220,9 +2296,13 @@ function AppInner() {
   const [blockedDates, setBlockedDates] = useState([]);
   const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
   const [openDates, setOpenDates] = useState({});
+  const [batchOpenDates, setBatchOpenDates] = useState([]);
 
-  // IMPORTANT : batchDate doit être déclaré APRÈS blockedDates
-  const batchDate = useMemo(() => getNextDateForDay(1, blockedDates), [blockedDates]);
+  // Lundis batch cooking ouverts par l'admin (dans le futur uniquement)
+  const batchDates = useMemo(
+    () => getUpcomingMondays(8).filter((m) => batchOpenDates.includes(m.iso)),
+    [batchOpenDates]
+  );
 
   const activeDays = useMemo(() => getScheduleWithDates(schedule, blockedDates, openDates), [schedule, blockedDates, openDates]);
   const orderWindow = useMemo(() => ({ isOpen: activeDays.length > 0 }), [activeDays]);
@@ -2248,6 +2328,10 @@ function AppInner() {
       try {
         const result = await window.storage.get(OPEN_DATES_KEY, true);
         if (result?.value) setOpenDates(JSON.parse(result.value));
+      } catch (e) {}
+      try {
+        const result = await window.storage.get(BATCH_DATES_KEY, true);
+        if (result?.value) setBatchOpenDates(JSON.parse(result.value));
       } catch (e) {}
       setStep("daypicker");
     })();
@@ -2330,6 +2414,13 @@ function AppInner() {
     setOpenDates(newOpenDates);
     try {
       await window.storage.set(OPEN_DATES_KEY, JSON.stringify(newOpenDates), true);
+    } catch (e) {}
+  };
+
+  const handleSaveBatchDates = async (newDates) => {
+    setBatchOpenDates(newDates);
+    try {
+      await window.storage.set(BATCH_DATES_KEY, JSON.stringify(newDates), true);
     } catch (e) {}
   };
 
@@ -2429,7 +2520,7 @@ function AppInner() {
   };
 
   const handleConfirmBatch = async (b) => {
-    const nd = batchDate;
+    const nd = batchDates.find((x) => x.iso === b.dateIso) || batchDates[0];
     const dayLabelBatch = formatDayLabel(nd.date);
     const formulaLabel = `Batch cooking · ${b.formula.group} – ${b.formula.label}`;
     const total = b.formula.price + (b.deliveryFee || 0);
@@ -2602,13 +2693,13 @@ function AppInner() {
           schedule={schedule}
           blockedDates={blockedDates}
           openDates={openDates}
-          batchDate={batchDate}
+          batchDates={batchDates}
           onOpenAdmin={() => setStep("pin")}
         />
       )}
 
-      {step === "batch" && (
-        <BatchScreen onBack={() => setStep("daypicker")} batchDate={batchDate} onConfirm={handleConfirmBatch} />
+      {step === "batch" && batchDates.length > 0 && (
+        <BatchScreen onBack={() => setStep("daypicker")} batchDates={batchDates} onConfirm={handleConfirmBatch} />
       )}
 
       {step === "devis" && (
@@ -2646,6 +2737,8 @@ function AppInner() {
           onSaveSchedule={handleSaveSchedule}
           openDates={openDates}
           onSaveOpenDates={handleSaveOpenDates}
+          batchOpenDates={batchOpenDates}
+          onSaveBatchDates={handleSaveBatchDates}
         />
       )}
 
