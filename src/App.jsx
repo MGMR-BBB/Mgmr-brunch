@@ -481,14 +481,10 @@ function SectionEyebrow({ children }) {
 }
 
 // ---------------------------------------------------------------------------
-// Écran Choix du jour : jours de retrait ouverts par l'admin
+// Écran d'accueil : Box / Batch cooking / Événements privés
 // ---------------------------------------------------------------------------
-function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpenAdmin, batchDates }) {
-  const activeDays = useMemo(
-    () => getScheduleWithDates(schedule, blockedDates, openDates),
-    [schedule, blockedDates, openDates]
-  );
-
+function HomeScreen({ onSelect, onOpenAdmin, boxDaysCount, batchDates }) {
+  const batchOpen = batchDates.length > 0;
   return (
     <div className="min-h-screen bg-[#FBF3E7] pb-28">
       <header className="px-6 pt-10 pb-8 text-center relative overflow-hidden">
@@ -511,8 +507,105 @@ function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpe
           </p>
         </StampRing>
         <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
+        <p className="mt-3 text-sm text-[#3E2F22]/70 max-w-xs mx-auto">Que souhaitez-vous commander ?</p>
+      </header>
+
+      <main className="px-5 flex flex-col gap-4">
+        <button
+          onClick={() => onSelect("box")}
+          className="w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">📦</div>
+            <div className="flex-1">
+              <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                Box brunch & apéro
+              </p>
+              <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                {boxDaysCount > 0
+                  ? "À emporter ou livré · choisissez votre jour"
+                  : "Aucun jour disponible pour le moment"}
+              </p>
+            </div>
+            <span className="text-[#C97B63] text-lg">→</span>
+          </div>
+        </button>
+
+        <button
+          onClick={() => batchOpen && onSelect("batch")}
+          disabled={!batchOpen}
+          className={`w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left transition ${batchOpen ? "active:scale-[0.98]" : "opacity-60"}`}
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">🍱</div>
+            <div className="flex-1">
+              <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                Batch cooking
+              </p>
+              <p className="text-xs text-[#3E2F22]/50 mt-0.5">
+                {batchOpen
+                  ? `Repas de la semaine · ${BATCH_WINDOW_LABEL} · à emporter ou livré`
+                  : "Pas de date ouverte pour le moment"}
+              </p>
+            </div>
+            {batchOpen && <span className="text-[#C97B63] text-lg">→</span>}
+          </div>
+        </button>
+
+        <button
+          onClick={() => onSelect("devis")}
+          className="w-full bg-[#5B6B4F]/10 rounded-2xl p-5 text-left active:scale-[0.98] transition border border-[#5B6B4F]/20"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-[#5B6B4F]/10 flex items-center justify-center text-3xl shrink-0">🎉</div>
+            <div className="flex-1">
+              <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
+                Événement privatif
+              </p>
+              <p className="text-xs text-[#3E2F22]/50 mt-0.5">Demandez votre devis personnalisé</p>
+            </div>
+            <span className="text-[#5B6B4F] text-lg">→</span>
+          </div>
+        </button>
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Écran Choix du jour : jours de retrait ouverts par l'admin
+// ---------------------------------------------------------------------------
+function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onBack }) {
+  const activeDays = useMemo(
+    () => getScheduleWithDates(schedule, blockedDates, openDates),
+    [schedule, blockedDates, openDates]
+  );
+
+  return (
+    <div className="min-h-screen bg-[#FBF3E7] pb-28">
+      <header className="px-6 pt-10 pb-8 text-center relative overflow-hidden">
+        <div className="absolute -top-10 -left-10 w-40 h-40 opacity-20 rotate-12" aria-hidden>
+          <Leaf className="w-full h-full text-[#5B6B4F]" strokeWidth={1} />
+        </div>
+        <button
+          onClick={onBack}
+          className="absolute top-3 left-3 z-10 w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-[#3E2F22]/60 active:scale-95"
+          aria-label="Retour à l'accueil"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <StampRing size={140}>
+          <Heart className="w-5 h-5 text-[#E8A9A0] mb-1" fill="#E8A9A0" strokeWidth={0} />
+          <h1 className="text-3xl text-[#3E2F22] leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
+            MGMR
+          </h1>
+          <p className="text-xl text-[#C97B63] -mt-1" style={{ fontFamily: "'Caveat', cursive" }}>
+            Brunch & Événement
+          </p>
+        </StampRing>
+        <p className="text-[11px] tracking-[0.15em] text-[#5B6B4F] uppercase mt-2">Bessens</p>
         <p className="mt-3 text-sm text-[#3E2F22]/70 max-w-xs mx-auto">
-          Choisissez votre jour de retrait
+          Choisissez le jour de votre box
         </p>
       </header>
 
@@ -550,52 +643,6 @@ function DayPickerScreen({ onSelectDay, schedule, blockedDates, openDates, onOpe
           </button>
         ))}
 
-        <div className="mt-2 border-t border-dashed border-[#3E2F22]/10 pt-4">
-          {batchDates.length > 0 && (
-            <button
-              onClick={() => onSelectDay("batch")}
-              className="w-full bg-white rounded-2xl p-5 shadow-sm border border-[#3E2F22]/5 text-left active:scale-[0.98] transition mb-3"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-[#FBF3E7] flex items-center justify-center text-3xl shrink-0">
-                  🍱
-                </div>
-                <div className="flex-1">
-                  <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                    Batch cooking
-                  </p>
-                  <p className="text-sm text-[#C97B63] font-medium">
-                    {formatDayLabel(batchDates[0].date)}
-                    {batchDates.length > 1 ? ` · +${batchDates.length - 1} autre${batchDates.length > 2 ? "s" : ""} date${batchDates.length > 2 ? "s" : ""}` : ""}
-                  </p>
-                  <p className="text-xs text-[#3E2F22]/50 mt-0.5">
-                    Repas de la semaine · {BATCH_WINDOW_LABEL} · à emporter ou livré
-                  </p>
-                </div>
-                <span className="text-[#C97B63] text-lg">→</span>
-              </div>
-            </button>
-          )}
-          <button
-            onClick={() => onSelectDay("devis")}
-            className="w-full bg-[#5B6B4F]/10 rounded-2xl p-5 text-left active:scale-[0.98] transition border border-[#5B6B4F]/20"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-[#5B6B4F]/10 flex items-center justify-center text-3xl shrink-0">
-                🎉
-              </div>
-              <div className="flex-1">
-                <p className="text-base font-semibold text-[#3E2F22]" style={{ fontFamily: "'Fraunces', serif" }}>
-                  Événement privatif
-                </p>
-                <p className="text-xs text-[#3E2F22]/50 mt-0.5">
-                  Demandez votre devis personnalisé
-                </p>
-              </div>
-              <span className="text-[#5B6B4F] text-lg">→</span>
-            </div>
-          </button>
-        </div>
       </main>
     </div>
   );
@@ -2333,7 +2380,7 @@ function AppInner() {
         const result = await window.storage.get(BATCH_DATES_KEY, true);
         if (result?.value) setBatchOpenDates(JSON.parse(result.value));
       } catch (e) {}
-      setStep("daypicker");
+      setStep("home");
     })();
   }, []);
 
@@ -2589,7 +2636,7 @@ function AppInner() {
     setAddressForm({ street: "", postcode: "", city: "", notes: "" });
     setDeliveryError("");
     setLastOrder(null);
-    setStep("daypicker");
+    setStep("home");
   };
 
   const loadOrders = async () => {
@@ -2683,27 +2730,33 @@ function AppInner() {
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Caveat:wght@600;700&family=Inter:wght@400;500;600&display=swap');
       `}</style>
 
+      {step === "home" && (
+        <HomeScreen
+          onSelect={(choice) => setStep(choice === "box" ? "daypicker" : choice)}
+          onOpenAdmin={() => setStep("pin")}
+          boxDaysCount={activeDays.length}
+          batchDates={batchDates}
+        />
+      )}
+
       {step === "daypicker" && (
         <DayPickerScreen
           onSelectDay={(day) => {
-            if (day === "devis") { setStep("devis"); return; }
-            if (day === "batch") { setStep("batch"); return; }
             setSelectedDay(day); setCart({}); setExtras({}); setStep("menu");
           }}
           schedule={schedule}
           blockedDates={blockedDates}
           openDates={openDates}
-          batchDates={batchDates}
-          onOpenAdmin={() => setStep("pin")}
+          onBack={() => setStep("home")}
         />
       )}
 
       {step === "batch" && batchDates.length > 0 && (
-        <BatchScreen onBack={() => setStep("daypicker")} batchDates={batchDates} onConfirm={handleConfirmBatch} />
+        <BatchScreen onBack={() => setStep("home")} batchDates={batchDates} onConfirm={handleConfirmBatch} />
       )}
 
       {step === "devis" && (
-        <DevisScreen onBack={() => setStep("daypicker")} />
+        <DevisScreen onBack={() => setStep("home")} />
       )}
 
       {step === "menu" && (
@@ -2722,13 +2775,13 @@ function AppInner() {
       )}
 
       {step === "pin" && (
-        <PinScreen onBack={() => setStep("daypicker")} onSuccess={() => setStep("admin")} />
+        <PinScreen onBack={() => setStep("home")} onSuccess={() => setStep("admin")} />
       )}
 
       {step === "admin" && (
         <AdminScreen
           weeklyContent={weeklyContent}
-          onBack={() => setStep("daypicker")}
+          onBack={() => setStep("home")}
           onSave={handleSaveWeeklyContent}
           onOpenOrders={handleOpenOrders}
           blockedDates={blockedDates}
