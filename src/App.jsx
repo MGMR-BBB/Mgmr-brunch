@@ -180,28 +180,28 @@ const BATCH_GROUPS = [
   {
     title: "Formule midi",
     note: "5 gamelles individuelles / semaine",
-    options: [{ id: "midi", label: "5 gamelles individuelles", price: 59 }],
+    options: [{ id: "midi", label: "5 gamelles individuelles", price: 59, meals: 5 }],
   },
   {
     title: "Formule soir",
     note: "5 repas par semaine",
     options: [
-      { id: "soir-solo", label: "Solo (1 personne)", price: 69 },
-      { id: "soir-duo", label: "Duo (2 personnes)", price: 109 },
-      { id: "soir-trio", label: "Trio (3 personnes)", price: 139 },
-      { id: "soir-famille", label: "Famille (4 personnes)", price: 169 },
-      { id: "soir-grande", label: "Grande famille (5 personnes)", price: 209 },
+      { id: "soir-solo", label: "Solo (1 personne)", price: 69, meals: 5 },
+      { id: "soir-duo", label: "Duo (2 personnes)", price: 109, meals: 5 },
+      { id: "soir-trio", label: "Trio (3 personnes)", price: 139, meals: 5 },
+      { id: "soir-famille", label: "Famille (4 personnes)", price: 169, meals: 5 },
+      { id: "soir-grande", label: "Grande famille (5 personnes)", price: 209, meals: 5 },
     ],
   },
   {
     title: "Formule complète",
     note: "midi + soir",
     options: [
-      { id: "full-solo", label: "Solo (1 personne)", price: 125 },
-      { id: "full-duo", label: "Duo (2 personnes)", price: 165 },
-      { id: "full-trio", label: "Trio (3 personnes)", price: 195 },
-      { id: "full-famille", label: "Famille (4 personnes)", price: 225 },
-      { id: "full-grande", label: "Grande famille (5 personnes)", price: 265 },
+      { id: "full-solo", label: "Solo (1 personne)", price: 125, meals: 10 },
+      { id: "full-duo", label: "Duo (2 personnes)", price: 165, meals: 10 },
+      { id: "full-trio", label: "Trio (3 personnes)", price: 195, meals: 10 },
+      { id: "full-famille", label: "Famille (4 personnes)", price: 225, meals: 10 },
+      { id: "full-grande", label: "Grande famille (5 personnes)", price: 265, meals: 10 },
     ],
   },
 ];
@@ -1869,6 +1869,7 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
 function BatchScreen({ onBack, batchDate, onConfirm }) {
   const [formulaId, setFormulaId] = useState(null);
   const [notes, setNotes] = useState("");
+  const [dishQty, setDishQty] = useState({});
   const [firstName, setFirstName] = useState("");
   const [phone, setPhone] = useState("");
   const [deliveryMode, setDeliveryMode] = useState(false);
@@ -1885,13 +1886,27 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
   const formula = allOptions.find((o) => o.id === formulaId) || null;
   const fee = deliveryMode && deliveryInfo?.status === "ok" ? deliveryInfo.fee : 0;
   const total = formula ? formula.price + fee : 0;
+  const mealsNeeded = formula?.meals || 0;
+  const dishesCount = Object.values(dishQty).reduce((a, b) => a + b, 0);
+  const dishesOk = mealsNeeded > 0 && dishesCount === mealsNeeded;
+  const addDish = (d) => {
+    if (dishesCount >= mealsNeeded) return;
+    setDishQty((prev) => ({ ...prev, [d]: (prev[d] || 0) + 1 }));
+  };
+  const removeDish = (d) => {
+    setDishQty((prev) => {
+      const q = prev[d] || 0;
+      if (q <= 1) { const next = { ...prev }; delete next[d]; return next; }
+      return { ...prev, [d]: q - 1 };
+    });
+  };
 
   const phoneValid = phone.trim().replace(/\s/g, "").length >= 10;
   const nameValid = firstName.trim().length >= 2;
   const addressOk = !deliveryMode || isAddressValid(addressForm);
   const slotOk = deliveryMode || !!slot;
   const blocked = deliveryMode && ["checking", "toofar", "notfound"].includes(deliveryInfo?.status);
-  const canSubmit = !!formula && nameValid && phoneValid && addressOk && slotOk && !blocked && !submitting;
+  const canSubmit = !!formula && nameValid && phoneValid && dishesOk && addressOk && slotOk && !blocked && !submitting;
 
   const setField = (k, v) => {
     setAddressForm((f) => ({ ...f, [k]: v }));
@@ -1922,6 +1937,7 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
     }
     await onConfirm({
       formula,
+      dishes: Object.entries(dishQty).filter(([, q]) => q > 0).map(([name, qty]) => ({ name, qty })),
       notes: notes.trim(),
       firstName: firstName.trim(),
       phone: phone.trim(),
@@ -1967,7 +1983,7 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
                 return (
                   <button
                     key={o.id}
-                    onClick={() => setFormulaId(o.id)}
+                    onClick={() => { if (formulaId !== o.id) { setFormulaId(o.id); setDishQty({}); } }}
                     className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition active:scale-[0.98] ${
                       selected
                         ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
@@ -1985,24 +2001,56 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
 
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
           <h3 className="text-sm text-[#3E2F22] font-semibold mb-3" style={{ fontFamily: "'Fraunces', serif" }}>
-            Les plats
+            Choisissez vos plats
           </h3>
-          <ol className="grid grid-cols-1 gap-1">
-            {BATCH_DISHES.map((d, i) => (
-              <li key={d} className="text-xs text-[#3E2F22]/70 flex gap-2">
-                <span className="text-[#C97B63] w-5 shrink-0 text-right">{i + 1}.</span>
-                <span>{d}</span>
-              </li>
-            ))}
-          </ol>
+          <p className="text-xs text-[#5B6B4F] mb-3">
+            {formula
+              ? `${dishesCount} / ${mealsNeeded} plats choisis (vous pouvez prendre le même plat plusieurs fois)`
+              : "Choisissez d'abord une formule ci-dessus"}
+          </p>
+          <div className="flex flex-col gap-2">
+            {BATCH_DISHES.map((d) => {
+              const q = dishQty[d] || 0;
+              const full = !formula || dishesCount >= mealsNeeded;
+              return (
+                <div key={d} className="flex items-center gap-3">
+                  <span className={`flex-1 text-sm ${q > 0 ? "text-[#3E2F22] font-medium" : "text-[#3E2F22]/70"}`}>{d}</span>
+                  {q === 0 ? (
+                    <button
+                      disabled={full}
+                      onClick={() => addDish(d)}
+                      className="shrink-0 w-8 h-8 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 transition disabled:opacity-30"
+                      aria-label={`Ajouter ${d}`}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <div className="shrink-0 flex items-center gap-1.5 bg-[#FBF3E7] rounded-full px-1 py-1">
+                      <button onClick={() => removeDish(d)} className="w-7 h-7 rounded-full bg-white text-[#3E2F22] flex items-center justify-center active:scale-95">
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="w-4 text-center text-sm font-semibold text-[#3E2F22]">{q}</span>
+                      <button
+                        disabled={full}
+                        onClick={() => addDish(d)}
+                        className="w-7 h-7 rounded-full bg-[#C97B63] text-white flex items-center justify-center active:scale-95 disabled:opacity-30"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <label className="block text-xs uppercase tracking-wide text-[#5B6B4F] mt-4 mb-2">
-            Vos plats souhaités / remarques (facultatif)
+            Allergies / remarques (facultatif)
           </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            placeholder="Ex : 2 lasagnes, 1 poulet coco-curry… ou allergies"
+            placeholder="Ex : allergie aux fruits à coque"
             className={`${inputCls} resize-none`}
           />
         </div>
@@ -2118,7 +2166,10 @@ function BatchScreen({ onBack, batchDate, onConfirm }) {
               : "Choisissez une formule"}
           </span>
         </button>
-        {formula && (!nameValid || !phoneValid) && (
+        {formula && !dishesOk && (
+          <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Choisissez {mealsNeeded} plats ({dishesCount}/{mealsNeeded})</p>
+        )}
+        {formula && dishesOk && (!nameValid || !phoneValid) && (
           <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Entrez votre prénom et votre numéro pour continuer</p>
         )}
       </div>
@@ -2365,7 +2416,8 @@ function AppInner() {
     const formulaLabel = `Batch cooking · ${b.formula.group} – ${b.formula.label}`;
     const total = b.formula.price + (b.deliveryFee || 0);
     const lines = [`${formulaLabel} : ${b.formula.price.toFixed(2)} €`];
-    if (b.notes) lines.push(`Plats souhaités : ${b.notes}`);
+    if (b.dishes?.length) lines.push(`Plats : ${b.dishes.map((x) => `${x.qty}× ${x.name}`).join(", ")}`);
+    if (b.notes) lines.push(`Remarques : ${b.notes}`);
     if (b.delivery) {
       lines.push(b.deliveryFee > 0 ? `Livraison (${b.deliveryKm} km) : ${b.deliveryFee.toFixed(2)} €` : "Livraison offerte (Bessens)");
     }
