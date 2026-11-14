@@ -1,5 +1,5 @@
+import "./storage.js";
 import React, { useState, useEffect, useMemo } from "react";
-import CONFIG from "./config.js";
 import {
   Leaf,
   Heart,
@@ -1185,11 +1185,7 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
 
         <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F] flex items-start gap-2">
           <span>ⓘ</span>
-          <span>
-            {SUPABASE_URL
-              ? "Ces changements sont visibles par tous les clients qui ouvrent l'appli."
-              : "Ces réglages ne sont enregistrés que sur ce téléphone. Pour qu'ils s'appliquent à tous les clients, modifiez le fichier config.js dans GitHub."}
-          </span>
+          <span>Ces changements sont visibles par tous les clients qui ouvrent l'appli.</span>
         </div>
 
         {FORMULAS.map((formula) => (
@@ -2372,7 +2368,7 @@ function AppInner() {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null); // clé du jour ex: "lundi" ou date ISO d'un week-end "2026-11-07"
   const [lastOrder, setLastOrder] = useState(null);
-  const [weeklyContent, setWeeklyContent] = useState(CONFIG.menu || {});
+  const [weeklyContent, setWeeklyContent] = useState({});
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [deliveryMode, setDeliveryMode] = useState(false);
@@ -2385,10 +2381,10 @@ function AppInner() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
-  const [blockedDates, setBlockedDates] = useState(CONFIG.blockedDates || []);
-  const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, ...(CONFIG.weekdays || {}) });
-  const [openDates, setOpenDates] = useState(CONFIG.weekendDates || {});
-  const [batchOpenDates, setBatchOpenDates] = useState(CONFIG.batchMondays || []);
+  const [blockedDates, setBlockedDates] = useState([]);
+  const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
+  const [openDates, setOpenDates] = useState({});
+  const [batchOpenDates, setBatchOpenDates] = useState([]);
 
   // Lundis batch cooking ouverts par l'admin (dans le futur uniquement)
   const batchDates = useMemo(
@@ -2405,7 +2401,7 @@ function AppInner() {
 
   useEffect(() => {
     (async () => {
-      if (SUPABASE_URL && SUPABASE_KEY) {
+      if (window.storage) {
         const load = async (key, setter) => {
           try {
             const r = await window.storage.get(key, true);
