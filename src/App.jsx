@@ -233,30 +233,21 @@ const BATCH_WINDOW_LABEL = "17h00–18h30";
 
 const BATCH_GROUPS = [
   {
+    part: "midi",
     title: "Formule midi",
     note: "5 gamelles individuelles / semaine",
-    options: [{ id: "midi", label: "5 gamelles individuelles", price: 59, meals: 5 }],
+    options: [{ id: "midi", label: "5 gamelles individuelles", price: 59 }],
   },
   {
+    part: "soir",
     title: "Formule soir",
     note: "5 repas par semaine",
     options: [
-      { id: "soir-solo", label: "Solo (1 personne)", price: 69, meals: 5 },
-      { id: "soir-duo", label: "Duo (2 personnes)", price: 109, meals: 5 },
-      { id: "soir-trio", label: "Trio (3 personnes)", price: 139, meals: 5 },
-      { id: "soir-famille", label: "Famille (4 personnes)", price: 169, meals: 5 },
-      { id: "soir-grande", label: "Grande famille (5 personnes)", price: 209, meals: 5 },
-    ],
-  },
-  {
-    title: "Formule complète",
-    note: "midi + soir",
-    options: [
-      { id: "full-solo", label: "Solo (1 personne)", price: 125, meals: 10 },
-      { id: "full-duo", label: "Duo (2 personnes)", price: 165, meals: 10 },
-      { id: "full-trio", label: "Trio (3 personnes)", price: 195, meals: 10 },
-      { id: "full-famille", label: "Famille (4 personnes)", price: 225, meals: 10 },
-      { id: "full-grande", label: "Grande famille (5 personnes)", price: 265, meals: 10 },
+      { id: "soir-solo", label: "Solo (1 personne)", price: 59 },
+      { id: "soir-duo", label: "Duo (2 personnes)", price: 109 },
+      { id: "soir-trio", label: "Trio (3 personnes)", price: 154 },
+      { id: "soir-famille", label: "Famille (4 personnes)", price: 199 },
+      { id: "soir-grande", label: "Grande famille (5 personnes)", price: 244 },
     ],
   },
 ];
@@ -2008,7 +1999,8 @@ function OrdersScreen({ orders, onBack, onDelete, loading }) {
 function BatchScreen({ onBack, batchDates, onConfirm }) {
   const [dateIso, setDateIso] = useState(batchDates[0]?.iso || "");
   const batchDate = batchDates.find((x) => x.iso === dateIso) || batchDates[0];
-  const [formulaId, setFormulaId] = useState(null);
+  const [midiOn, setMidiOn] = useState(false);
+  const [soirId, setSoirId] = useState(null);
   const [notes, setNotes] = useState("");
   const [dishQty, setDishQty] = useState({ midi: {}, soir: {} });
   const [firstName, setFirstName] = useState("");
@@ -2021,15 +2013,28 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
   const deliveryInfo = useDeliveryCheck(deliveryMode, addressForm);
 
   const allOptions = useMemo(
-    () => BATCH_GROUPS.flatMap((g) => g.options.map((o) => ({ ...o, group: g.title }))),
+    () => BATCH_GROUPS.flatMap((g) => g.options.map((o) => ({ ...o, group: g.title, part: g.part }))),
     []
   );
-  const formula = allOptions.find((o) => o.id === formulaId) || null;
+  const midiOpt = midiOn ? allOptions.find((o) => o.id === "midi") : null;
+  const soirOpt = soirId ? allOptions.find((o) => o.id === soirId) : null;
+  const selectedItems = [midiOpt, soirOpt].filter(Boolean);
+  const itemsTotal = selectedItems.reduce((sum, o) => sum + o.price, 0);
+  const toggleOption = (part, o) => {
+    if (part === "midi") {
+      if (midiOn) { setMidiOn(false); setDishQty((p) => ({ ...p, midi: {} })); } else setMidiOn(true);
+    } else if (soirId === o.id) {
+      setSoirId(null);
+      setDishQty((p) => ({ ...p, soir: {} }));
+    } else {
+      setSoirId(o.id);
+    }
+  };
   const fee = deliveryMode && deliveryInfo?.status === "ok" ? deliveryInfo.fee : 0;
-  const total = formula ? formula.price + fee : 0;
+  const total = itemsTotal > 0 ? itemsTotal + fee : 0;
   const MEALS_PER_PART = 5;
   const PART_LABEL = { midi: "Repas du midi", soir: "Repas du soir" };
-  const parts = !formula ? [] : formula.id === "midi" ? ["midi"] : formula.id.startsWith("soir-") ? ["soir"] : ["midi", "soir"];
+  const parts = selectedItems.map((o) => o.part);
   const countOf = (part) => Object.values(dishQty[part] || {}).reduce((a, b) => a + b, 0);
   const dishesOk = parts.length > 0 && parts.every((pt) => countOf(pt) === MEALS_PER_PART);
   const addDish = (part, d) => {
@@ -2050,7 +2055,7 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
   const addressOk = !deliveryMode || isAddressValid(addressForm);
   const slotOk = deliveryMode || !!slot;
   const blocked = deliveryMode && ["checking", "toofar", "notfound"].includes(deliveryInfo?.status);
-  const canSubmit = !!formula && nameValid && phoneValid && dishesOk && addressOk && slotOk && !blocked && !submitting;
+  const canSubmit = selectedItems.length > 0 && nameValid && phoneValid && dishesOk && addressOk && slotOk && !blocked && !submitting;
 
   const setField = (k, v) => {
     setAddressForm((f) => ({ ...f, [k]: v }));
@@ -2080,7 +2085,7 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
       deliveryFee = res.fee;
     }
     await onConfirm({
-      formula,
+      items: selectedItems.map((o) => ({ part: o.part, group: o.group, label: o.label, price: o.price })),
       dateIso: batchDate.iso,
       dishes: parts.map((pt) => ({
         part: pt,
@@ -2117,7 +2122,7 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
 
       <main className="px-5 flex flex-col gap-4">
         <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F]">
-          Vos repas de la semaine, préparés maison. Retrait ou livraison le lundi entre 17h00 et 18h30.
+          Vos repas de la semaine, préparés maison. Retrait ou livraison le lundi entre 17h00 et 18h30. Choisissez la formule midi, la formule soir, ou les deux.
         </div>
 
         {batchDates.length > 1 && (
@@ -2149,11 +2154,11 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
             <p className="text-xs text-[#3E2F22]/50 mb-3">{group.note}</p>
             <div className="flex flex-col gap-2">
               {group.options.map((o) => {
-                const selected = formulaId === o.id;
+                const selected = group.part === "midi" ? midiOn : soirId === o.id;
                 return (
                   <button
                     key={o.id}
-                    onClick={() => { if (formulaId !== o.id) { setFormulaId(o.id); setDishQty({ midi: {}, soir: {} }); } }}
+                    onClick={() => toggleOption(group.part, o)}
                     className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition active:scale-[0.98] ${
                       selected
                         ? "bg-[#5B6B4F] text-white border-[#5B6B4F] shadow-md"
@@ -2342,15 +2347,15 @@ function BatchScreen({ onBack, batchDates, onConfirm }) {
           <span className="text-sm font-semibold">
             {submitting
               ? "Envoi en cours…"
-              : formula
+              : selectedItems.length > 0
               ? `Réserver · ${total.toFixed(2)} €`
               : "Choisissez une formule"}
           </span>
         </button>
-        {formula && !dishesOk && (
+        {selectedItems.length > 0 && !dishesOk && (
           <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Choisissez vos plats : {parts.map((pt) => `${PART_LABEL[pt]} ${countOf(pt)}/${MEALS_PER_PART}`).join(" · ")}</p>
         )}
-        {formula && dishesOk && (!nameValid || !phoneValid) && (
+        {selectedItems.length > 0 && dishesOk && (!nameValid || !phoneValid) && (
           <p className="text-center text-xs text-[#3E2F22]/50 mt-2">Entrez votre prénom et votre numéro pour continuer</p>
         )}
       </div>
@@ -2604,9 +2609,10 @@ function AppInner() {
   const handleConfirmBatch = async (b) => {
     const nd = batchDates.find((x) => x.iso === b.dateIso) || batchDates[0];
     const dayLabelBatch = formatDayLabel(nd.date);
-    const formulaLabel = `Batch cooking · ${b.formula.group} – ${b.formula.label}`;
-    const total = b.formula.price + (b.deliveryFee || 0);
-    const lines = [`${formulaLabel} : ${b.formula.price.toFixed(2)} €`];
+    const itemsPrice = b.items.reduce((sum, i) => sum + i.price, 0);
+    const formulaLabel = `Batch cooking · ${b.items.map((i) => `${i.group} – ${i.label}`).join(" + ")}`;
+    const total = itemsPrice + (b.deliveryFee || 0);
+    const lines = b.items.map((i) => `${i.group} – ${i.label} : ${i.price.toFixed(2)} €`);
     (b.dishes || []).forEach((g) => {
       if (g.items.length) lines.push(`${g.label} : ${g.items.map((x) => `${x.qty}× ${x.name}`).join(", ")}`);
     });
@@ -2632,7 +2638,7 @@ function AppInner() {
       deliveryFee: b.deliveryFee || 0,
       extras: [],
       extrasTotal: 0,
-      batch: { label: formulaLabel, price: b.formula.price },
+      batch: { label: formulaLabel, price: itemsPrice },
       paid: false,
       createdAt: new Date().toISOString(),
     };
