@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import CONFIG from "./config.js";
 import {
   Leaf,
   Heart,
@@ -22,31 +23,85 @@ import {
 } from "lucide-react";
 
 
-// Si window.storage n'existe pas (hors artefact Claude), on utilise une version de secours
-if (typeof window !== "undefined" && !window.storage) {
+// ---------------------------------------------------------------------------
+// Stockage partagé : Supabase (si configuré) sinon stockage local de secours.
+// Variables à définir dans Vercel : VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = (import.meta.env && import.meta.env.VITE_SUPABASE_URL) || "";
+const SUPABASE_KEY = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) || "";
+
+if (typeof window !== "undefined") {
   const mem = {};
   const ls = (() => { try { return window.localStorage; } catch (e) { return null; } })();
-  const k = (key, shared) => (shared ? "s:" : "p:") + key;
-  window.storage = {
+  const lk = (key, shared) => (shared ? "s:" : "p:") + key;
+  const local = {
     async get(key, shared) {
-      const v = ls ? ls.getItem(k(key, shared)) : mem[k(key, shared)];
+      const v = ls ? ls.getItem(lk(key, shared)) : mem[lk(key, shared)];
       if (v == null) throw new Error("not found");
       return { key, value: v, shared: !!shared };
     },
     async set(key, value, shared) {
-      if (ls) ls.setItem(k(key, shared), value); else mem[k(key, shared)] = value;
+      if (ls) ls.setItem(lk(key, shared), value); else mem[lk(key, shared)] = value;
       return { key, value, shared: !!shared };
     },
     async delete(key, shared) {
-      if (ls) ls.removeItem(k(key, shared)); else delete mem[k(key, shared)];
+      if (ls) ls.removeItem(lk(key, shared)); else delete mem[lk(key, shared)];
       return { key, deleted: true, shared: !!shared };
     },
     async list(prefix = "", shared) {
-      const pre = k(prefix, shared);
+      const pre = lk(prefix, shared);
       const all = ls ? Object.keys(ls) : Object.keys(mem);
       return { keys: all.filter((x) => x.startsWith(pre)).map((x) => x.slice(2)), prefix, shared: !!shared };
     },
   };
+
+  const headers = {
+    apikey: SUPABASE_KEY,
+    Authorization: "Bearer " + SUPABASE_KEY,
+    "Content-Type": "application/json",
+  };
+  const table = SUPABASE_URL + "/rest/v1/kv";
+  const remote = {
+    async get(key, shared) {
+      const r = await fetch(`${table}?key=eq.${encodeURIComponent(key)}&select=key,value`, { headers, cache: "no-store" });
+      if (!r.ok) throw new Error("supabase " + r.status);
+      const rows = await r.json();
+      if (!rows.length) throw new Error("not found");
+      return { key, value: rows[0].value, shared: !!shared };
+    },
+    async set(key, value, shared) {
+      const r = await fetch(table, {
+        method: "POST",
+        headers: { ...headers, Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key, value }),
+      });
+      if (!r.ok) throw new Error("supabase " + r.status);
+      return { key, value, shared: !!shared };
+    },
+    async delete(key, shared) {
+      const r = await fetch(`${table}?key=eq.${encodeURIComponent(key)}`, { method: "DELETE", headers });
+      if (!r.ok) throw new Error("supabase " + r.status);
+      return { key, deleted: true, shared: !!shared };
+    },
+    async list(prefix = "", shared) {
+      const r = await fetch(`${table}?key=like.${encodeURIComponent(prefix)}*&select=key`, { headers, cache: "no-store" });
+      if (!r.ok) throw new Error("supabase " + r.status);
+      const rows = await r.json();
+      return { keys: rows.map((x) => x.key), prefix, shared: !!shared };
+    },
+  };
+
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    // Données partagées -> Supabase ; données personnelles -> navigateur
+    window.storage = {
+      get: (k, sh) => (sh ? remote.get(k, sh) : local.get(k, sh)),
+      set: (k, v, sh) => (sh ? remote.set(k, v, sh) : local.set(k, v, sh)),
+      delete: (k, sh) => (sh ? remote.delete(k, sh) : local.delete(k, sh)),
+      list: (p, sh) => (sh ? remote.list(p, sh) : local.list(p, sh)),
+    };
+  } else if (!window.storage) {
+    window.storage = local;
+  }
 }
 
 // Code PIN pour protéger l'accès à l'écran admin (menu de la semaine,
@@ -491,12 +546,14 @@ function HomeScreen({ onSelect, onOpenAdmin, boxDaysCount, batchDates }) {
         <div className="absolute -top-10 -left-10 w-40 h-40 opacity-20 rotate-12" aria-hidden>
           <Leaf className="w-full h-full text-[#5B6B4F]" strokeWidth={1} />
         </div>
+        {onOpenAdmin && (
         <button
           onClick={onOpenAdmin}
           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-[#3E2F22]/50 active:scale-95"
         >
           <Settings className="w-4 h-4" />
         </button>
+        )}
         <StampRing size={140}>
           <Heart className="w-5 h-5 text-[#E8A9A0] mb-1" fill="#E8A9A0" strokeWidth={0} />
           <h1 className="text-3xl text-[#3E2F22] leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
@@ -786,6 +843,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
         <div className="absolute -top-10 -left-10 w-40 h-40 opacity-20 rotate-12" aria-hidden>
           <Leaf className="w-full h-full text-[#5B6B4F]" strokeWidth={1} />
         </div>
+        {onOpenAdmin && (
         <button
           onClick={onOpenAdmin}
           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/70 flex items-center justify-center text-[#3E2F22]/50 active:scale-95"
@@ -793,6 +851,7 @@ function MenuScreen({ cart, weeklyContent, onAdd, onRemove, onGoCart, onOpenAdmi
         >
           <Settings className="w-4 h-4" />
         </button>
+        )}
         <StampRing size={140}>
           <Heart className="w-5 h-5 text-[#E8A9A0] mb-1" fill="#E8A9A0" strokeWidth={0} />
           <h1 className="text-3xl text-[#3E2F22] leading-none" style={{ fontFamily: "'Fraunces', serif", fontWeight: 600 }}>
@@ -1128,14 +1187,18 @@ function AdminScreen({ weeklyContent, onBack, onSave, onOpenOrders, blockedDates
         >
           <span className="flex items-center gap-2 text-sm font-medium">
             <ListChecks className="w-4 h-4" />
-            Commandes du jour & paiements
+            Commandes du jour
           </span>
           <span className="text-[#C97B63] text-sm">→</span>
         </button>
 
         <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F] flex items-start gap-2">
           <span>ⓘ</span>
-          <span>Ces changements sont visibles par tous les clients qui ouvrent l'appli.</span>
+          <span>
+            {SUPABASE_URL
+              ? "Ces changements sont visibles par tous les clients qui ouvrent l'appli."
+              : "Ces réglages ne sont enregistrés que sur ce téléphone. Pour qu'ils s'appliquent à tous les clients, modifiez le fichier config.js dans GitHub."}
+          </span>
         </div>
 
         {FORMULAS.map((formula) => (
@@ -1824,14 +1887,13 @@ function ConfirmScreen({ order, onNewOrder }) {
 // ---------------------------------------------------------------------------
 // Écran Admin : Commandes du jour — pour générer et suivre les paiements
 // ---------------------------------------------------------------------------
-function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
+function OrdersScreen({ orders, onBack, onDelete, loading }) {
   const [copiedId, setCopiedId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const sorted = [...orders].sort((a, b) =>
     `${a.dayIso || ""} ${a.slot || ""}`.localeCompare(`${b.dayIso || ""} ${b.slot || ""}`)
   );
-  const totalDue = orders.filter((o) => !o.paid).reduce((sum, o) => sum + o.total, 0);
 
   const handleCopy = (order) => {
     const text = `MGMR Brunch & Événement — Commande ${order.id}\n${order.firstName ? `Client : ${order.firstName}\n` : ""}${order.lines.join("\n")}\nTotal : ${order.total.toFixed(2)} €\n${order.delivery ? "Livraison" : "Retrait"} : ${[order.dayLabel, order.slot].filter(Boolean).join(" · ")}${order.delivery ? `\nAdresse : ${order.address}` : ""}\nTél : ${order.phone}`;
@@ -1879,12 +1941,6 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
           <p className="text-sm text-[#3E2F22]/60 text-center mt-10">Aucune commande pour l'instant.</p>
         )}
 
-        {!loading && orders.length > 0 && (
-          <div className="bg-[#5B6B4F]/10 rounded-xl px-3 py-2.5 text-xs text-[#5B6B4F] flex items-center justify-between mb-1">
-            <span>En attente de paiement</span>
-            <span className="font-semibold">{totalDue.toFixed(2)} €</span>
-          </div>
-        )}
 
         {sorted.map((order) => (
           <div key={order.id} className="bg-white rounded-2xl p-4 shadow-sm border border-[#3E2F22]/5">
@@ -1895,13 +1951,6 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
                 </span>
                 <span className="text-[10px] text-[#3E2F22]/40">#{order.id}</span>
               </div>
-              <span
-                className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded-full font-medium shrink-0 ${
-                  order.paid ? "bg-[#5B6B4F]/15 text-[#5B6B4F]" : "bg-[#C97B63]/15 text-[#C97B63]"
-                }`}
-              >
-                {order.paid ? "Payée" : "En attente"}
-              </span>
             </div>
 
             {order.delivery && (
@@ -1932,15 +1981,6 @@ function OrdersScreen({ orders, onBack, onTogglePaid, onDelete, loading }) {
               >
                 {copiedId === order.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedId === order.id ? "Copié" : "Copier le récap"}
-              </button>
-              <button
-                onClick={() => onTogglePaid(order.id, !order.paid)}
-                className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-medium rounded-full py-2 active:scale-95 transition ${
-                  order.paid ? "bg-[#3E2F22]/5 text-[#3E2F22]/50" : "bg-[#5B6B4F] text-white"
-                }`}
-              >
-                <CircleDollarSign className="w-3.5 h-3.5" />
-                {order.paid ? "Marquer non payée" : "Marquer payée"}
               </button>
             </div>
 
@@ -2327,7 +2367,7 @@ function AppInner() {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null); // clé du jour ex: "lundi" ou date ISO d'un week-end "2026-11-07"
   const [lastOrder, setLastOrder] = useState(null);
-  const [weeklyContent, setWeeklyContent] = useState({});
+  const [weeklyContent, setWeeklyContent] = useState(CONFIG.menu || {});
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [deliveryMode, setDeliveryMode] = useState(false);
@@ -2340,10 +2380,10 @@ function AppInner() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [boxAlreadyBooked, setBoxAlreadyBooked] = useState(0);
   const [loadingCapacity, setLoadingCapacity] = useState(false);
-  const [blockedDates, setBlockedDates] = useState([]);
-  const [schedule, setSchedule] = useState(DEFAULT_SCHEDULE);
-  const [openDates, setOpenDates] = useState({});
-  const [batchOpenDates, setBatchOpenDates] = useState([]);
+  const [blockedDates, setBlockedDates] = useState(CONFIG.blockedDates || []);
+  const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, ...(CONFIG.weekdays || {}) });
+  const [openDates, setOpenDates] = useState(CONFIG.weekendDates || {});
+  const [batchOpenDates, setBatchOpenDates] = useState(CONFIG.batchMondays || []);
 
   // Lundis batch cooking ouverts par l'admin (dans le futur uniquement)
   const batchDates = useMemo(
@@ -2360,26 +2400,21 @@ function AppInner() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const result = await window.storage.get(STORAGE_KEY, true);
-        if (result?.value) setWeeklyContent(JSON.parse(result.value));
-      } catch (e) {}
-      try {
-        const result = await window.storage.get(BLOCKED_DATES_KEY, true);
-        if (result?.value) setBlockedDates(JSON.parse(result.value));
-      } catch (e) {}
-      try {
-        const result = await window.storage.get(SCHEDULE_KEY, true);
-        if (result?.value) setSchedule(JSON.parse(result.value));
-      } catch (e) {}
-      try {
-        const result = await window.storage.get(OPEN_DATES_KEY, true);
-        if (result?.value) setOpenDates(JSON.parse(result.value));
-      } catch (e) {}
-      try {
-        const result = await window.storage.get(BATCH_DATES_KEY, true);
-        if (result?.value) setBatchOpenDates(JSON.parse(result.value));
-      } catch (e) {}
+      if (SUPABASE_URL && SUPABASE_KEY) {
+        const load = async (key, setter) => {
+          try {
+            const r = await window.storage.get(key, true);
+            if (r?.value) setter(JSON.parse(r.value));
+          } catch (e) {}
+        };
+        await Promise.all([
+          load(STORAGE_KEY, setWeeklyContent),
+          load(BLOCKED_DATES_KEY, setBlockedDates),
+          load(SCHEDULE_KEY, setSchedule),
+          load(OPEN_DATES_KEY, setOpenDates),
+          load(BATCH_DATES_KEY, setBatchOpenDates),
+        ]);
+      }
       setStep("home");
     })();
   }, []);
@@ -2695,18 +2730,6 @@ function AppInner() {
     setLoadingCapacity(false);
   };
 
-  const handleTogglePaid = async (orderId, paid) => {
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, paid } : o)));
-    const target = orders.find((o) => o.id === orderId);
-    if (!target) return;
-    const updated = { ...target, paid };
-    try {
-      await window.storage.set(`order:${orderId}`, JSON.stringify(updated), true);
-    } catch (e) {
-      console.error("Impossible de mettre à jour la commande", e);
-    }
-  };
-
   const handleDeleteOrder = async (orderId) => {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
     try {
@@ -2800,7 +2823,6 @@ function AppInner() {
           orders={orders}
           loading={ordersLoading}
           onBack={() => setStep("admin")}
-          onTogglePaid={handleTogglePaid}
           onDelete={handleDeleteOrder}
         />
       )}
